@@ -46,7 +46,6 @@ class da_Vocab:
 
         for k, _ in sorted(vocab_count.items(), key=lambda x: -x[1]):
             vocab[k] = len(vocab)
-            if len(vocab) >= self.config['MAX_VOCAB']: break
         self.word2id = vocab
         self.id2word = {v : k for k, v in vocab.items()}
 
@@ -77,7 +76,7 @@ class utt_Vocab:
             self.load()
 
     def construct(self):
-        vocab = {'<UNK>': 0, '<EOS>': 1, '<BOS>': 2, '<UttPAD>': 3}
+        vocab = {'<UNK>': 0, '<EOS>': 1, '<BOS>': 2, '<PAD>': 3}
         vocab_count = {}
 
         for post, cmnt in zip(self.posts, self.cmnts):

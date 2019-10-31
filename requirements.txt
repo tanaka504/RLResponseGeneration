@@ -1,0 +1,9 @@
+torch==0.4.0
+numpy
+pyhocon
+argparse
+matplotlib
+seaborn
+sklearn
+pickle
+nltk

@@ -181,10 +181,8 @@ class RL(nn.Module):
 
             endnodes = []
             number_required = min((topk + 1), (topk - len(endnodes)))
-
             node = BeamNode(hidden=decoder_hidden, previousNode=None, wordId=decoder_input, logProb=0, length=1)
             nodes = PriorityQueue()
-
             nodes.put((-node.eval(), node))
             qsize = 1
 
@@ -197,7 +195,6 @@ class RL(nn.Module):
 
                 if n.wordid.item() == EOS_token and n.prevNode != None:
                     endnodes.append((score, n))
-
                     if len(endnodes) >= number_required:
                         break
                     else:
@@ -210,7 +207,6 @@ class RL(nn.Module):
                 for new_k in range(config['beam_size']):
                     decoded_t = indexes[0][new_k].view(1, -1)
                     log_p = log_prob[0][new_k].item()
-
                     node = BeamNode(hidden=decoder_hidden, previousNode=n, wordId=decoded_t, logProb=n.logp + log_p, length=n.length + 1)
                     score = -node.eval()
                     nextnodes.append((score, node))
@@ -239,8 +235,6 @@ class RL(nn.Module):
             decoded_batch.append(pred_seq)
 
         return decoded_batch[0], decoder_hidden
-
-
 
 
 class HRED(nn.Module):

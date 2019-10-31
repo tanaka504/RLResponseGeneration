@@ -126,6 +126,8 @@ def train(experiment, fine_tuning=False):
 
     start = time.time()
     _valid_loss = None
+    _train_loss = None
+    early_stop = 0
 
     for e in range(config['EPOCH']):
         tmp_time = time.time()
@@ -187,21 +189,38 @@ def train(experiment, fine_tuning=False):
         valid_loss = validation(XU_valid=XU_valid, YU_valid=YU_valid, model=model, utt_context=utt_context, utt_vocab=utt_vocab)
 
         if _valid_loss is None:
-            torch.save(utt_encoder.state_dict(), os.path.join(config['log_dir'], 'utt_enc_statebest.model'))
-            torch.save(utt_decoder.state_dict(), os.path.join(config['log_dir'], 'utt_dec_statebest.model'))
-            torch.save(utt_context.state_dict(), os.path.join(config['log_dir'], 'utt_context_statebest.model'))
+            torch.save(utt_encoder.state_dict(), os.path.join(config['log_dir'], 'utt_enc_statevalidbest.model'))
+            torch.save(utt_decoder.state_dict(), os.path.join(config['log_dir'], 'utt_dec_statevalidbest.model'))
+            torch.save(utt_context.state_dict(), os.path.join(config['log_dir'], 'utt_context_statevalidbest.model'))
 
             _valid_loss = valid_loss
 
         else:
             if _valid_loss > valid_loss:
-                torch.save(utt_encoder.state_dict(), os.path.join(config['log_dir'], 'utt_enc_statebest.model'))
-                torch.save(utt_decoder.state_dict(), os.path.join(config['log_dir'], 'utt_dec_statebest.model'))
-                torch.save(utt_context.state_dict(), os.path.join(config['log_dir'], 'utt_context_statebest.model'))
-
+                torch.save(utt_encoder.state_dict(), os.path.join(config['log_dir'], 'utt_enc_statevalidbest.model'))
+                torch.save(utt_decoder.state_dict(), os.path.join(config['log_dir'], 'utt_dec_statevalidbest.model'))
+                torch.save(utt_context.state_dict(), os.path.join(config['log_dir'], 'utt_context_statevalidbest.model'))
                 _valid_loss = valid_loss
+                print('valid loss update, save model')
 
-
+        if _train_loss is None:
+            torch.save(utt_encoder.state_dict(), os.path.join(config['log_dir'], 'utt_enc_statetrainbest.model'))
+            torch.save(utt_decoder.state_dict(), os.path.join(config['log_dir'], 'utt_dec_statetrainbest.model'))
+            torch.save(utt_context.state_dict(), os.path.join(config['log_dir'], 'utt_context_statetrainbest.model'))
+            _train_loss = print_total_loss
+        else:
+            if _train_loss > print_total_loss:
+                torch.save(utt_encoder.state_dict(), os.path.join(config['log_dir'], 'utt_enc_statetrainbest.model'))
+                torch.save(utt_decoder.state_dict(), os.path.join(config['log_dir'], 'utt_dec_statetrainbest.model'))
+                torch.save(utt_context.state_dict(), os.path.join(config['log_dir'], 'utt_context_statetrainbest.model'))
+                _train_loss = print_total_loss
+                early_stop = 0
+                print('train loss update, save model')
+            else:
+                early_stop += 1
+                print('early stopping count | {}/{}'.format(early_stop, config['EARLY_STOP']))
+                if early_stop >= config['EARLY_STOP']:
+                    break
         if (e + 1) % config['LOGGING_FREQ'] == 0:
             print_loss_avg = print_total_loss / config['LOGGING_FREQ']
             print_total_loss = 0

@@ -34,7 +34,6 @@ RUN git clone --depth 1 https://github.com/neologd/mecab-ipadic-neologd.git /usr
 /usr/src/mecab-ipadic-neologd/bin/install-mecab-ipadic-neologd -n -y
 RUN mecab -d /usr/local/lib/mecab/dic/mecab-ipadic-neologd/
 
-ADD . /home/DA_conv/
-
 WORKDIR /home/
+RUN git clone https://github.com/tanaka504/RLResponseGeneration.git
 CMD ["/bin/bash"]

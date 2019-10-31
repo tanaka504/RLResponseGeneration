@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
 class DAEncoder(nn.Module):
@@ -49,7 +48,7 @@ class UtteranceEncoder(nn.Module):
         seq_len, sort_idx = lengths.sort(descending=True)
         _, unsort_idx = sort_idx.sort(descending=False)
         # sorting
-        X = F.tanh(self.eh(self.xe(X))) # (batch_size, 1, seq_len, embed_size)
+        X = torch.tanh(self.eh(self.xe(X))) # (batch_size, 1, seq_len, embed_size)
         sorted_X = X[sort_idx]
         # padding
         packed_tensor = pack_padded_sequence(sorted_X, seq_len, batch_first=True)
@@ -98,7 +97,7 @@ class UtteranceDecoder(nn.Module):
         self.th = nn.Linear(self.hidden_size + 10, self.hidden_size)
 
     def forward(self, Y, hidden, tag=None):
-        h = F.tanh(self.eh(self.ye(Y)))
+        h = torch.tanh(self.eh(self.ye(Y)))
         if not tag is None:
             h = self.th(torch.cat((h, tag), dim=2))
         output, hidden = self.hh(h, hidden)

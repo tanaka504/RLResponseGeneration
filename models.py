@@ -3,7 +3,8 @@ import torch.nn as nn
 from nn_blocks import *
 from queue import PriorityQueue
 import operator
-from nltk.translate.bleu_score import corpus_bleu
+from nltk.translate.bleu_score import corpus_bleu, SmoothingFunction
+import phsic
 
 
 class RL(nn.Module):
@@ -16,23 +17,47 @@ class RL(nn.Module):
         self.utt_decoder = utt_decoder
         self.config = config
 
-    def forward(self, X_utt, Y_utt, utt_context_hidden, step_size, criterion, last):
+    def forward(self, X_utt, Y_utt, utt_context_hidden, baseline_outputs, step_size, criterion, last):
+        """
+        :param X_utt: context utterance tensor (batch_size, seq_len, 1)
+        :param Y_utt: reference utterance tensor (batch_size, seq_len, 1)
+        :param utt_context_hidden: hidden of context encoder (batch_size, 1, context_hidden_size)
+        :param step_size: batch size (Scalar)
+        :param criterion: loss function
+        :param last: flg of conversation's last
+        :return: loss, updated utt_context_hidden
+        """
         CE_loss = 0
         utt_dec_hidden = self._encoding(X_utt=X_utt, utt_context_hidden=utt_context_hidden, step_size=step_size)
 
         # Response Decode
+        # Greedy Decoding
+        # pred_seq = []
+        # for j in range(len(Y_utt[0]) - 1):
+        #     prev_words = Y_utt[:, j].unsqueeze(1)
+        #     logits, utt_decoder_hidden, utt_decoder_output = self.utt_decoder(prev_words, utt_dec_hidden)
+        #     _, topi = logits.topk(1)
+        #     pred_seq.append(topi.item())
+        #     CE_loss += criterion(logits.view(-1, len(self.utt_vocab.word2id)), Y_utt[:, j + 1])
+
+        # Sample Decoding
         pred_seq = []
         for j in range(len(Y_utt[0]) - 1):
             prev_words = Y_utt[:, j].unsqueeze(1)
-            preds, utt_decoder_hidden, utt_decoder_output = self.utt_decoder(prev_words, utt_dec_hidden)
-            _, topi = preds.topk(1)
-            pred_seq.append(topi.item())
-            CE_loss += criterion(preds.view(-1, len(self.utt_vocab.word2id)), Y_utt[:, j + 1])
+            logits, decoder_hidden, _ = self.utt_decoder(prev_words, utt_dec_hidden)
+            filtered_logits = self.top_k_top_p_filtering(logits=logits, top_k=self.config['top_k'],
+                                                         top_p=self.config['top_p'])
+            probs = F.softmax(filtered_logits, dim=-1)
+            next_token = torch.multinomial(probs, 1)
+            pred_seq.append(next_token)
+            CE_loss += criterion(probs.view(-1, len(self.utt_vocab.word2id)), Y_utt[:, j+1])
 
-        # Calc. reward
-        reward = self.reward()
+        # get reward
+        reward = self.reward(pred_seq, Y_utt, X_utt)
+        b = self.reward(baseline_outputs, X_utt, Y_utt)
 
-        pg_loss = CE_loss * reward
+        # Optimized with REINFORCE
+        pg_loss = CE_loss * (reward - b)
         pg_loss = pg_loss.mean()
 
         if self.training:
@@ -44,8 +69,17 @@ class RL(nn.Module):
         else:
             return pg_loss.item(), utt_context_hidden
 
-    def reward(self, hypothesis, context):
-        return 1.0
+    def reward(self, hypothesis, reference, context):
+        # TODO: 報酬を考える
+        r_bleu = self.calc_bleu(reference, hypothesis)
+        r_phsic = self.calc_phsic(hypothesis, context)
+        return 1
+
+    def calc_bleu(self, refs, hyps):
+        return corpus_bleu(refs, hyps, smoothing_function=SmoothingFunction.method2)
+
+    def calc_phsic(self, hyps, context):
+        return 1
 
     def predict(self, X_utt, utt_context_hidden):
         with torch.no_grad():
@@ -60,8 +94,7 @@ class RL(nn.Module):
                                                                  config=self.config)
                 pred_seq = pred_seq[0]
             else:
-                pred_seq, utt_decoder_hidden = self._greedy_decode(prev_words, self.utt_decoder, utt_decoder_hidden,
-                                                                   config=self.config)
+                pred_seq, utt_decoder_hidden = self._greedy_decode(prev_words, self.utt_decoder, utt_decoder_hidden)
 
         return pred_seq, utt_context_hidden
 
@@ -75,19 +108,60 @@ class RL(nn.Module):
 
         return utt_context_hidden
 
-    def _greedy_decode(self, prev_words, decoder, decoder_hidden, config):
+    def _greedy_decode(self, prev_words, decoder, decoder_hidden):
         EOS_token = self.utt_vocab.word2id['<EOS>']
         pred_seq = []
-        for _ in range(config['max_len']):
+        for _ in range(self.config['max_len']):
             preds, decoder_hidden, _ = decoder(prev_words, decoder_hidden)
             _, topi = preds.topk(1)
             pred_seq.append(topi.item())
             prev_words = torch.tensor([[topi]]).to(self.device)
             if topi == EOS_token:
                 break
-        if not pred_seq[-1] == EOS_token: pred_seq.append(EOS_token)
         return pred_seq, decoder_hidden
 
+    def _sample_decode(self, prev_words, decoder, decoder_hidden):
+        EOS_token = self.utt_vocab.word2id['<EOS>']
+        pred_seq = []
+        for _ in range(self.config['max_len']):
+            logits, decoder_hidden, _ = decoder(prev_words, decoder_hidden)
+            filtered_logits = self.top_k_top_p_filtering(logits=logits, top_k=self.config['top_k'], top_p=self.config['top_p'])
+            probs = F.softmax(filtered_logits, dim=-1)
+            next_token = torch.multinomial(probs, 1)
+            pred_seq.append(next_token)
+            prev_words = torch.tensor(next_token).to(self.device)
+            if next_token == EOS_token:
+                break
+        return pred_seq, decoder_hidden
+
+    def top_k_top_p_filtering(self, logits, top_k=0, top_p=0.0, filter_value=-float('Inf')):
+        """ Filter a distribution of logits using top-k and/or nucleus (top-p) filtering
+            Args:
+                logits: logits distribution shape (vocabulary size)
+                top_k >0: keep only top k tokens with highest probability (top-k filtering).
+                top_p >0.0: keep the top tokens with cumulative probability >= top_p (nucleus filtering).
+                    Nucleus filtering is described in Holtzman et al. (http://arxiv.org/abs/1904.09751)
+        """
+        assert logits.dim() == 1  # batch size 1 for now - could be updated for more but the code would be less clear
+        top_k = min(top_k, logits.size(-1))  # Safety check
+        if top_k > 0:
+            # Remove all tokens with a probability less than the last token of the top-k
+            indices_to_remove = logits < torch.topk(logits, top_k)[0][..., -1, None]
+            logits[indices_to_remove] = filter_value
+
+        if top_p > 0.0:
+            sorted_logits, sorted_indices = torch.sort(logits, descending=True)
+            cumulative_probs = torch.cumsum(F.softmax(sorted_logits, dim=-1), dim=-1)
+
+            # Remove tokens with cumulative probability above the threshold
+            sorted_indices_to_remove = cumulative_probs > top_p
+            # Shift the indices to the right to keep also the first token above the threshold
+            sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
+            sorted_indices_to_remove[..., 0] = 0
+
+            indices_to_remove = sorted_indices[sorted_indices_to_remove]
+            logits[indices_to_remove] = filter_value
+        return logits
 
     def _beam_decode(self, decoder, decoder_hiddens, config, encoder_outputs=None):
         BOS_token = self.utt_vocab.word2id['<BOS>']
@@ -170,106 +244,63 @@ class RL(nn.Module):
 
 
 class HRED(nn.Module):
-    def __init__(self, da_vocab, utt_vocab, device,
-                 da_encoder, utt_encoder, da_context, utt_context,
-                 da_decoder, utt_decoder, config):
+    def __init__(self, utt_vocab, device,
+                 utt_encoder, utt_context, utt_decoder, config):
         super(HRED, self).__init__()
         self.device = device
-        self.da_vocab = da_vocab
         self.utt_vocab = utt_vocab
-        self.da_encoder = da_encoder
         self.utt_encoder = utt_encoder
-        self.da_context = da_context
         self.utt_context = utt_context
-        self.da_decoder = da_decoder
         self.utt_decoder = utt_decoder
         self.config = config
 
-    def forward(self, X_da, Y_da, X_utt, Y_utt, step_size,
-                da_context_hidden, utt_context_hidden,
-                criterion, da_criterion, last):
+    def forward(self,X_utt, Y_utt, step_size,
+                utt_context_hidden,
+                criterion, last, baseline_outputs=None):
         loss = 0
 
         # Encoding
-        da_dec_hidden, utt_dec_hidden = self._encoding(X_da=X_da, X_utt=X_utt,
-                                                       da_context_hidden=da_context_hidden,
-                                                       utt_context_hidden=utt_context_hidden,
+        utt_dec_hidden = self._encoding(X_utt=X_utt, utt_context_hidden=utt_context_hidden,
                                                        step_size=step_size)
 
-        # DA Decode
-        utt_decoder_hidden = utt_dec_hidden
-        if self.config['use_da']:
-            if self.config['merge_dic']:
-                prev_words = torch.tensor([[self.utt_vocab.word2id['<TAG>']] for _ in range(step_size)]).to(self.device)
-                preds, utt_decoder_hidden, utt_decoder_output = self.utt_decoder(prev_words, utt_decoder_hidden)
-                da_decoder_output = self.da_decoder(utt_decoder_output)
-            else:
-                da_decoder_output = self.da_decoder(da_dec_hidden)
-            da_output = da_decoder_output.squeeze(1)
-            Y_da = Y_da.squeeze(0)
-            Y_da = Y_da.squeeze(1)
-            da_loss = da_criterion(da_output, Y_da)
-        
-        tag = da_decoder_output if self.config['speaker'] else None
         # Response Decode
         for j in range(len(Y_utt[0]) - 1):
             prev_words = Y_utt[:, j].unsqueeze(1)
-            preds, utt_decoder_hidden, utt_decoder_output = self.utt_decoder(prev_words, utt_decoder_hidden, tag)
+            preds, utt_decoder_hidden, utt_decoder_output = self.utt_decoder(prev_words, utt_dec_hidden)
             _, topi = preds.topk(1)
             loss += criterion(preds.view(-1, len(self.utt_vocab.word2id)), Y_utt[:, j + 1])
 
         # Calc. loss
-        if self.config['use_da'] and not self.config['merge_dic']:
-            loss = self._calc_loss(utt_loss=loss, da_loss=da_loss, true_y=Y_da, config=self.config)
-        elif self.config['merge_dic']:
-            loss = self._calc_loss(utt_loss=loss, da_loss=da_loss, true_y=Y_da, config=self.config)
-        else:
-            loss = loss.mean()
+        loss = loss.mean()
         if self.training:
             if last:
                 loss.backward()
-                return loss.item(), da_context_hidden, utt_context_hidden
+                return loss.item(), utt_context_hidden
             else:
-                return loss, da_context_hidden, utt_context_hidden
+                return loss, utt_context_hidden
         else:
-            return loss.item(), da_context_hidden, utt_context_hidden
+            return loss.item(), utt_context_hidden
 
 
-    def predict(self, X_da, X_utt, da_context_hidden, utt_context_hidden):
+    def predict(self, X_utt, utt_context_hidden):
         with torch.no_grad():
-            da_dec_hidden, utt_dec_hidden = self._encoding(X_da=X_da, X_utt=X_utt,
-                                                           da_context_hidden=da_context_hidden,
+            da_dec_hidden, utt_dec_hidden = self._encoding(X_utt=X_utt,
                                                            utt_context_hidden=utt_context_hidden,
                                                            step_size=1)
 
-            if self.config['use_da'] and not self.config['merge_dic']:
-                decoder_output = self.da_decoder(da_dec_hidden)
-            elif self.config['merge_dic']:
-                prev_words = torch.tensor([[self.utt_vocab.word2id['<TAG>']]]).to(self.device)
-                preds, utt_decoder_hidden, utt_decoder_output = self.utt_decoder(prev_words, utt_dec_hidden)
-                decoder_output = self.da_decoder(utt_decoder_output)
-            else:
-                decoder_output = None
-
             utt_decoder_hidden = utt_dec_hidden
             prev_words = torch.tensor([[self.utt_vocab.word2id['<BOS>']]]).to(self.device)
-            
-            tag = decoder_output if self.config['speaker'] else None
+
             if self.config['beam_size']:
                 pred_seq, utt_decoder_hidden = self._beam_decode(decoder=self.utt_decoder, decoder_hiddens=utt_decoder_hidden, tag=tag, config=self.config)
                 pred_seq = pred_seq[0]
             else:
                 pred_seq, utt_decoder_hidden = self._greedy_decode(prev_words, self.utt_decoder, utt_decoder_hidden, tag, config=self.config)
 
-        return pred_seq, da_context_hidden, utt_context_hidden, decoder_output
+        return pred_seq, utt_context_hidden
 
 
-    def _encoding(self, X_da, X_utt, da_context_hidden, utt_context_hidden, step_size):
-        # Input Dialogue Act
-        if self.config['use_da']:
-            da_encoder_hidden = self.da_encoder(X_da)
-            da_context_output, da_context_hidden = self.da_context(da_encoder_hidden, da_context_hidden)
-
+    def _encoding(self, X_utt, utt_context_hidden, step_size):
         # Encode Utterance
         utt_encoder_hidden = self.utt_encoder.initHidden(step_size, self.device)
         utt_encoder_output, utt_encoder_hidden = self.utt_encoder(X_utt, utt_encoder_hidden)  # (batch_size, 1, UTT_HIDDEN)
@@ -277,26 +308,7 @@ class HRED(nn.Module):
         # Update Context Encoder
         utt_context_output, utt_context_hidden = self.utt_context(utt_encoder_output, utt_context_hidden) # (batch_size, 1, UTT_HIDDEN)
 
-        # concat DA hidden and Utterance hidden
-        if self.config['use_da']:
-            da_dec_hidden = torch.cat((da_context_output, utt_context_output), dim=2)
-            utt_dec_hidden = torch.cat((da_context_hidden, utt_context_hidden), dim=2) # (batch_size, 1, DEC_HIDDEN)
-        else:
-            da_dec_hidden = utt_context_output
-            utt_dec_hidden = utt_context_hidden
-
-        return da_dec_hidden, utt_dec_hidden
-
-
-    def _calc_loss(self, utt_loss, da_loss, true_y, config):
-        # for idx, y in enumerate(true_y):
-        #     if y == self.da_vocab.word2id['<Uninterpretable>']:
-        #         # da_loss[idx] = da_loss[idx] / 1e-10
-        #         utt_loss[idx] = utt_loss[idx] / 1e-10
-        # alpha = config['alpha']
-        alpha = 0.5
-        return (1 - alpha) * utt_loss.mean() + alpha * da_loss.mean()
-
+        return utt_context_hidden
 
     def _greedy_decode(self, prev_words, decoder, decoder_hidden, tag, config):
         EOS_token = self.utt_vocab.word2id['<EOS>']

@@ -117,6 +117,9 @@ def train(experiment, fine_tuning=False):
                 utt_encoder=utt_encoder,
                 utt_context=utt_context,
                 utt_decoder=utt_decoder, config=config).to(device)
+        baseline = HRED(utt_vocab=utt_vocab, device=device,
+                     utt_encoder=utt_encoder, utt_context=utt_context,
+                     utt_decoder=utt_decoder, config=config).to(device)
     print('Success construct model...')
 
 
@@ -142,6 +145,8 @@ def train(experiment, fine_tuning=False):
             step_size = min(batch_size, len(indexes) - k)
             batch_idx = indexes[k : k + step_size]
             utt_context_hidden = utt_context.initHidden(step_size, device)
+            baseline_context = utt_context.initHidden(step_size, device)
+            baseline_seq = None
             utt_encoder_opt.zero_grad()
             utt_decoder_opt.zero_grad()
             utt_context_opt.zero_grad()
@@ -169,7 +174,7 @@ def train(experiment, fine_tuning=False):
                 last = True if i == max_conv_len - 1 else False
                 if last:
                     loss, utt_context_hidden = model.forward(X_utt=XU_tensor, Y_utt=YU_tensor, step_size=step_size,
-                                                         utt_context_hidden=utt_context_hidden,
+                                                         utt_context_hidden=utt_context_hidden, baseline_outputs=baseline_seq,
                                                          criterion=criterion, last=last)
                     print_total_loss += loss
                     plot_total_loss += loss
@@ -179,8 +184,10 @@ def train(experiment, fine_tuning=False):
 
                 else:
                     loss, utt_context_hidden = model.forward(X_utt=XU_tensor, Y_utt=YU_tensor, step_size=step_size,
-                                                   utt_context_hidden=utt_context_hidden,
+                                                   utt_context_hidden=utt_context_hidden, baseline_outputs=baseline_seq,
                                                    criterion=criterion, last=last)
+                    if not 'HRED' in experiment:
+                        baseline_seq, baseline_context = baseline.predict(X_utt=XU_tensor, utt_context_hidden=baseline_context, step_size=step_size)
 
 
             k += step_size

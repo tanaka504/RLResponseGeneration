@@ -1,10 +1,12 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from nn_blocks import *
 from queue import PriorityQueue
 import operator
 from nltk.translate.bleu_score import corpus_bleu, SmoothingFunction
 import phsic
+from torchnlp.metrics import get_moses_multi_bleu
 
 
 class RL(nn.Module):
@@ -41,20 +43,29 @@ class RL(nn.Module):
         #     CE_loss += criterion(logits.view(-1, len(self.utt_vocab.word2id)), Y_utt[:, j + 1])
 
         # Sample Decoding
-        pred_seq = []
+        pred_seq = torch.zeros(step_size, len(Y_utt[0])).to(self.device)
         for j in range(len(Y_utt[0]) - 1):
             prev_words = Y_utt[:, j].unsqueeze(1)
             logits, decoder_hidden, _ = self.utt_decoder(prev_words, utt_dec_hidden)
             filtered_logits = self.top_k_top_p_filtering(logits=logits, top_k=self.config['top_k'],
                                                          top_p=self.config['top_p'])
             probs = F.softmax(filtered_logits, dim=-1)
-            next_token = torch.multinomial(probs, 1)
-            pred_seq.append(next_token)
+            next_token = torch.multinomial(probs, 1).squeeze(-1)
+            for n in range(len(next_token)):
+                pred_seq[n][j] = next_token[n]
             CE_loss += criterion(probs.view(-1, len(self.utt_vocab.word2id)), Y_utt[:, j+1])
 
         # get reward
-        reward = self.reward(pred_seq, Y_utt, X_utt)
-        b = self.reward(baseline_outputs, X_utt, Y_utt)
+        reward = self.reward(pred_seq.cpu(), Y_utt.cpu(), X_utt.cpu())
+        if baseline_outputs is None:
+            b = 0
+        else:
+            baseline_seq = torch.zeros(len(baseline_outputs[0]), len(baseline_outputs))
+            for i in range(len(baseline_outputs)):
+                for j in range(len(baseline_outputs[0])):
+                    baseline_seq[j][i] = baseline_outputs[i][j]
+
+            b = self.reward(baseline_seq.cpu(), X_utt.cpu(), Y_utt.cpu())
 
         # Optimized with REINFORCE
         pg_loss = CE_loss * (reward - b)
@@ -71,12 +82,15 @@ class RL(nn.Module):
 
     def reward(self, hypothesis, reference, context):
         # TODO: 報酬を考える
-        r_bleu = self.calc_bleu(reference, hypothesis)
+        r_bleu = self.calc_bleu(reference.numpy(), hypothesis.numpy())
         r_phsic = self.calc_phsic(hypothesis, context)
-        return 1
+        return r_bleu
 
     def calc_bleu(self, refs, hyps):
-        return corpus_bleu(refs, hyps, smoothing_function=SmoothingFunction.method2)
+        refs = [' '.join(list(map(str, ref))) for ref in refs]
+        hyps = [' '.join(list(map(str, hyp))) for hyp in hyps]
+        # return corpus_bleu(refs, hyps, smoothing_function=SmoothingFunction.method2)
+        return get_moses_multi_bleu(hyps, refs, lowercase=True)
 
     def calc_phsic(self, hyps, context):
         return 1
@@ -126,7 +140,7 @@ class RL(nn.Module):
         for _ in range(self.config['max_len']):
             logits, decoder_hidden, _ = decoder(prev_words, decoder_hidden)
             filtered_logits = self.top_k_top_p_filtering(logits=logits, top_k=self.config['top_k'], top_p=self.config['top_p'])
-            probs = F.softmax(filtered_logits, dim=-1)
+            probs = torch.softmax(filtered_logits, dim=-1)
             next_token = torch.multinomial(probs, 1)
             pred_seq.append(next_token)
             prev_words = torch.tensor(next_token).to(self.device)
@@ -142,7 +156,6 @@ class RL(nn.Module):
                 top_p >0.0: keep the top tokens with cumulative probability >= top_p (nucleus filtering).
                     Nucleus filtering is described in Holtzman et al. (http://arxiv.org/abs/1904.09751)
         """
-        assert logits.dim() == 1  # batch size 1 for now - could be updated for more but the code would be less clear
         top_k = min(top_k, logits.size(-1))  # Safety check
         if top_k > 0:
             # Remove all tokens with a probability less than the last token of the top-k
@@ -154,12 +167,13 @@ class RL(nn.Module):
             cumulative_probs = torch.cumsum(F.softmax(sorted_logits, dim=-1), dim=-1)
 
             # Remove tokens with cumulative probability above the threshold
-            sorted_indices_to_remove = cumulative_probs > top_p
+            sorted_indices_to_remove = cumulative_probs >= top_p
             # Shift the indices to the right to keep also the first token above the threshold
             sorted_indices_to_remove[..., 1:] = sorted_indices_to_remove[..., :-1].clone()
             sorted_indices_to_remove[..., 0] = 0
 
-            indices_to_remove = sorted_indices[sorted_indices_to_remove]
+            indices_to_remove = torch.zeros_like(logits, dtype=torch.uint8).scatter_(
+                dim=-1, index=sorted_indices, src=sorted_indices_to_remove)
             logits[indices_to_remove] = filter_value
         return logits
 
@@ -254,8 +268,7 @@ class HRED(nn.Module):
         loss = 0
 
         # Encoding
-        utt_dec_hidden = self._encoding(X_utt=X_utt, utt_context_hidden=utt_context_hidden,
-                                                       step_size=step_size)
+        utt_dec_hidden = self._encoding(X_utt=X_utt, utt_context_hidden=utt_context_hidden, step_size=step_size)
 
         # Response Decode
         for j in range(len(Y_utt[0]) - 1):
@@ -263,7 +276,6 @@ class HRED(nn.Module):
             preds, utt_decoder_hidden, utt_decoder_output = self.utt_decoder(prev_words, utt_dec_hidden)
             _, topi = preds.topk(1)
             loss += criterion(preds.view(-1, len(self.utt_vocab.word2id)), Y_utt[:, j + 1])
-
         # Calc. loss
         loss = loss.mean()
         if self.training:
@@ -275,24 +287,20 @@ class HRED(nn.Module):
         else:
             return loss.item(), utt_context_hidden
 
-
-    def predict(self, X_utt, utt_context_hidden):
+    def predict(self, X_utt, utt_context_hidden, step_size=1):
         with torch.no_grad():
-            da_dec_hidden, utt_dec_hidden = self._encoding(X_utt=X_utt,
-                                                           utt_context_hidden=utt_context_hidden,
-                                                           step_size=1)
+            utt_dec_hidden = self._encoding(X_utt=X_utt, utt_context_hidden=utt_context_hidden, step_size=step_size)
 
             utt_decoder_hidden = utt_dec_hidden
-            prev_words = torch.tensor([[self.utt_vocab.word2id['<BOS>']]]).to(self.device)
+            prev_words = torch.tensor([[self.utt_vocab.word2id['<BOS>']] for _ in range(step_size)]).to(self.device)
 
-            if self.config['beam_size']:
-                pred_seq, utt_decoder_hidden = self._beam_decode(decoder=self.utt_decoder, decoder_hiddens=utt_decoder_hidden, tag=tag, config=self.config)
-                pred_seq = pred_seq[0]
-            else:
-                pred_seq, utt_decoder_hidden = self._greedy_decode(prev_words, self.utt_decoder, utt_decoder_hidden, tag, config=self.config)
+            # if self.config['beam_size']:
+            #     pred_seq, utt_decoder_hidden = self._beam_decode(decoder=self.utt_decoder, decoder_hiddens=utt_decoder_hidden, tag=tag, config=self.config)
+            #     pred_seq = pred_seq[0]
+            # else:
+            pred_seq, utt_decoder_hidden = self._greedy_decode(prev_words, self.utt_decoder, utt_decoder_hidden, config=self.config)
 
         return pred_seq, utt_context_hidden
-
 
     def _encoding(self, X_utt, utt_context_hidden, step_size):
         # Encode Utterance
@@ -304,21 +312,20 @@ class HRED(nn.Module):
 
         return utt_context_hidden
 
-    def _greedy_decode(self, prev_words, decoder, decoder_hidden, tag, config):
-        EOS_token = self.utt_vocab.word2id['<EOS>']
+    def _greedy_decode(self, prev_words, decoder, decoder_hidden, config):
+        PAD_token = self.utt_vocab.word2id['<PAD>']
         pred_seq = []
         for _ in range(config['max_len']):
-            preds, decoder_hidden, _ = decoder(prev_words, decoder_hidden, tag)
+            preds, decoder_hidden, _ = decoder(prev_words, decoder_hidden)
             _, topi = preds.topk(1)
-            pred_seq.append(topi.item())
-            prev_words = torch.tensor([[topi]]).to(self.device)
-            if topi == EOS_token:
+            pred_seq.append(topi)
+            prev_words = topi.clone()
+            if all(ele == PAD_token for ele in topi):
                 break
-        if not pred_seq[-1] == EOS_token: pred_seq.append(EOS_token)
         return pred_seq, decoder_hidden
 
 
-    def _beam_decode(self, decoder, decoder_hiddens, tag, config, encoder_outputs=None):
+    def _beam_decode(self, decoder, decoder_hiddens, config, encoder_outputs=None):
         BOS_token = self.utt_vocab.word2id['<BOS>']
         EOS_token = self.utt_vocab.word2id['<EOS>']
         decoded_batch = []
@@ -358,7 +365,7 @@ class HRED(nn.Module):
                     else:
                         continue
 
-                decoder_output, decoder_hidden, _ = decoder(decoder_input, decoder_hidden, tag)
+                decoder_output, decoder_hidden, _ = decoder(decoder_input, decoder_hidden)
                 log_prob, indexes = torch.topk(decoder_output, config['beam_size'])
                 nextnodes = []
 

@@ -19,7 +19,7 @@ class RL(nn.Module):
         self.utt_decoder = utt_decoder
         self.config = config
 
-    def forward(self, X_utt, Y_utt, utt_context_hidden, baseline_outputs, step_size, criterion, last):
+    def forward(self, X_utt, Y_utt, utt_context_hidden, step_size, criterion, last):
         """
         :param X_utt: context utterance tensor (batch_size, seq_len, 1)
         :param Y_utt: reference utterance tensor (batch_size, seq_len, 1)
@@ -43,29 +43,29 @@ class RL(nn.Module):
         #     CE_loss += criterion(logits.view(-1, len(self.utt_vocab.word2id)), Y_utt[:, j + 1])
 
         # Sample Decoding
-        pred_seq = torch.zeros(step_size, len(Y_utt[0])).to(self.device)
+        pred_seq = []
+        base_seq = []
         for j in range(len(Y_utt[0]) - 1):
             prev_words = Y_utt[:, j].unsqueeze(1)
             logits, decoder_hidden, _ = self.utt_decoder(prev_words, utt_dec_hidden)
             filtered_logits = self.top_k_top_p_filtering(logits=logits, top_k=self.config['top_k'],
                                                          top_p=self.config['top_p'])
             probs = F.softmax(filtered_logits, dim=-1)
+            _, base_topi = logits.topk(1)
             next_token = torch.multinomial(probs, 1).squeeze(-1)
-            for n in range(len(next_token)):
-                pred_seq[n][j] = next_token[n]
+            pred_seq.append(next_token)
+            base_seq.append(base_topi)
             CE_loss += criterion(probs.view(-1, len(self.utt_vocab.word2id)), Y_utt[:, j+1])
-
+        pred_seq = torch.stack(pred_seq)
+        base_seq = torch.stack(base_seq)
+        
         # get reward
-        reward = self.reward(pred_seq.cpu(), Y_utt.cpu(), X_utt.cpu())
-        if baseline_outputs is None:
-            b = 0
-        else:
-            baseline_seq = torch.zeros(len(baseline_outputs[0]), len(baseline_outputs))
-            for i in range(len(baseline_outputs)):
-                for j in range(len(baseline_outputs[0])):
-                    baseline_seq[j][i] = baseline_outputs[i][j]
-
-            b = self.reward(baseline_seq.cpu(), X_utt.cpu(), Y_utt.cpu())
+        pred_seq = [s for s in pred_seq.transpose(0,1).data.tolist()]
+        base_seq = [s for s in base_seq.transpose(0,1).data.tolist()]
+        ref_seq = [s for s in Y_utt.data.tolist()]
+        context = [s for s in X_utt.data.tolist()]
+        reward = self.reward(pred_seq, ref_seq, context)
+        b = self.reward(base_seq, ref_seq, context)
 
         # Optimized with REINFORCE
         pg_loss = CE_loss * (reward - b)
@@ -82,7 +82,7 @@ class RL(nn.Module):
 
     def reward(self, hypothesis, reference, context):
         # TODO: 報酬を考える
-        r_bleu = self.calc_bleu(reference.numpy(), hypothesis.numpy())
+        r_bleu = self.calc_bleu(reference, hypothesis)
         r_phsic = self.calc_phsic(hypothesis, context)
         return r_bleu
 

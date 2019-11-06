@@ -181,8 +181,6 @@ def train(experiment, fine_tuning=False):
                     loss, utt_context_hidden = model.forward(X_utt=XU_tensor, Y_utt=YU_tensor, step_size=step_size,
                                                    utt_context_hidden=utt_context_hidden,
                                                    criterion=criterion, last=last)
-
-
             k += step_size
 
         print()

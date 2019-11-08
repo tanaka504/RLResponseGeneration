@@ -87,13 +87,13 @@ class RL(nn.Module):
         return r_bleu
 
     def calc_bleu(self, refs, hyps):
-        refs = [' '.join(list(map(str, ref))) for ref in refs]
-        hyps = [' '.join(list(map(str, hyp))) for hyp in hyps]
-        bleu = get_moses_multi_bleu(hyps, refs, lowercase=True)
-        if bleu is None: bleu = 0.0
-        # refs = [[list(map(str, ref))] for ref in refs]
-        # hyps = [list(map(str, hyp)) for hyp in hyps]
-        # bleu = corpus_bleu(refs, hyps, smoothing_function=SmoothingFunction.method2)
+        # refs = [' '.join(list(map(str, ref))) for ref in refs]
+        # hyps = [' '.join(list(map(str, hyp))) for hyp in hyps]
+        # bleu = get_moses_multi_bleu(hyps, refs, lowercase=True)
+        # if bleu is None: bleu = 0.0
+        refs = [[list(map(str, ref))] for ref in refs]
+        hyps = [list(map(str, hyp)) for hyp in hyps]
+        bleu = corpus_bleu(refs, hyps, smoothing_function=SmoothingFunction().method2)
         return bleu
 
     def calc_phsic(self, hyps, context):

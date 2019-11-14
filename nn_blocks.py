@@ -107,21 +107,43 @@ class UtteranceDecoder(nn.Module):
         return y_dist, hidden, output
 
 
+class DAPairEncoder(nn.Module):
+    def __init__(self, da_hidden_size, da_embed_size, da_vocab_size):
+        super(DAPairEncoder, self).__init__()
+        self.hidden_size = da_hidden_size
+        self.embed_size = da_embed_size
+        self.vocab_size = da_vocab_size
+
+        self.te = nn.Embedding(self.vocab_size, self.embed_size)
+        self.eh = nn.Linear(self.embed_size * 2, self.hidden_size)
+
+    def forward(self, X):
+        embeded = self.te(X)
+        c, n, _, _ = embeded.size()
+        embeded = embeded.view(c, n, -1)
+        return torch.tanh(self.eh(embeded))
+
 class OrderReasoningLayer(nn.Module):
-    def __init__(self, encoder_hidden_size, hidden_size, middle_layer_size):
+    def __init__(self, encoder_hidden_size, hidden_size, middle_layer_size, da_hidden_size, config):
         super(OrderReasoningLayer, self).__init__()
         self.encoder_hidden_size = encoder_hidden_size
         self.hidden_size = hidden_size
         self.middle_layer_size = middle_layer_size
+        self.da_hidden_size = da_hidden_size
+        self.config = config
 
         self.max_pooling = ChannelPool(kernel_size=3)
         self.xh = nn.Linear(self.encoder_hidden_size * 2, self.hidden_size)
         self.hh = nn.GRU(self.hidden_size, self.hidden_size, bidirectional=False)
         self.hh_b = nn.GRU(self.hidden_size, self.hidden_size, bidirectional=False)
+        self.tt = nn.GRU(self.da_hidden_size, self.da_hidden_size)
         self.hm = nn.Linear(self.hidden_size * 6, self.middle_layer_size)
+        if self.config['use_da']:
+            self.mm = nn.Linear(self.middle_layer_size + self.da_hidden_size * 3, self.middle_layer_size)
         self.my = nn.Linear(self.middle_layer_size, 2)
 
-    def forward(self, XOrdered, XMisOrdered, XTarget, Y, hidden):
+    def forward(self, XOrdered, XMisOrdered, XTarget,
+                DAOrdered, DAMisOrdered, DATarget, Y, hidden, da_hidden):
         XOrdered = self.xh(XOrdered)
         XMisOrdered = self.xh(XMisOrdered)
         XTarget = self.xh(XTarget)
@@ -133,24 +155,37 @@ class OrderReasoningLayer(nn.Module):
         T_output_b, _ = self.hh_b(self._invert_tensor(XTarget), hidden)
         # output: (window_size, batch_size, hidden_size)
 
+        if self.config['use_da']:
+            da_o_output, _ = self.tt(DAOrdered, da_hidden)
+            da_m_output, _ = self.tt(DAMisOrdered, da_hidden)
+            da_t_output, _ = self.tt(DATarget, da_hidden)
+            da_output = torch.cat((da_o_output[-1], da_m_output[-1], da_t_output[-1]), dim=-1)
+
         O_output = torch.cat((self.max_pooling.forward(O_output), self.max_pooling.forward(O_output_b)), dim=1)
         M_output = torch.cat((self.max_pooling.forward(M_output), self.max_pooling.forward(M_output_b)), dim=1)
         T_output = torch.cat((self.max_pooling.forward(T_output), self.max_pooling.forward(T_output_b)), dim=1)
         # output: (batch_size, hidden_size * 2)
-        output = torch.cat((O_output, M_output, T_output), dim=1)
+        output = torch.cat((O_output, M_output, T_output), dim=-1)
         # output: (batch_size, hidden_size * 6)
-        pred = F.softmax(self.my(self.hm(output)), dim=-1)
+        if self.config['use_da']:
+            output = self.mm(torch.cat((self.hm(output), da_output), dim=-1))
+        else:
+            output = self.hm(output)
+        pred = self.my(output)
         return pred
 
     def initHidden(self, batch_size, device):
         return torch.zeros(1, batch_size, self.hidden_size).to(device)
 
+    def initDAHidden(self, batch_size, device):
+        return torch.zeros(1, batch_size, self.da_hidden_size).to(device)
+
     def _invert_tensor(self, X):
         return X[torch.arange(X.size(0)-1, -1, -1)]
 
+
 class ChannelPool(nn.MaxPool1d):
     def forward(self, X):
-        c, n, h = X.size()
         X = X.permute(1,2,0)
         pooled = F.max_pool1d(X, self.kernel_size)
         pooled = pooled.permute(2,0,1).squeeze(0)

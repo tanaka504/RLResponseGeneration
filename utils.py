@@ -29,7 +29,7 @@ class da_Vocab:
             self.load()
 
     def construct(self):
-        vocab = {'<PAD>': 0}
+        vocab = {'<PAD>': 0, }
         vocab_count = {}
 
         for post, cmnt in zip(self.posts, self.cmnts):

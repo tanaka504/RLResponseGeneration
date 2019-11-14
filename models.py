@@ -42,7 +42,8 @@ class RL(nn.Module):
         #     pred_seq.append(topi.item())
         #     CE_loss += criterion(logits.view(-1, len(self.utt_vocab.word2id)), Y_utt[:, j + 1])
 
-        # Sample Decoding
+        # Decoding
+        # TODO: not teacher forcing but inference
         pred_seq = []
         base_seq = []
         for j in range(len(Y_utt[0]) - 1):
@@ -140,7 +141,7 @@ class RL(nn.Module):
         for _ in range(self.config['max_len']):
             logits, decoder_hidden, _ = decoder(prev_words, decoder_hidden)
             filtered_logits = self.top_k_top_p_filtering(logits=logits, top_k=self.config['top_k'], top_p=self.config['top_p'])
-            probs = torch.softmax(filtered_logits, dim=-1)
+            probs = F.softmax(filtered_logits, dim=-1)
             next_token = torch.multinomial(probs, 1)
             pred_seq.append(next_token)
             prev_words = torch.tensor(next_token).to(self.device)

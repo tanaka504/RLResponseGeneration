@@ -236,6 +236,7 @@ def train(experiment, fine_tuning=False):
     print()
     print('Finish training | exec time: %.4f [sec]' % (time.time() - start))
 
+
 def validation(XU_valid, YU_valid, model, utt_context, utt_vocab):
     model.eval()
     utt_context_hidden = utt_context.initHidden(1, device)

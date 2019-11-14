@@ -5,8 +5,6 @@ from nn_blocks import *
 from queue import PriorityQueue
 import operator
 from nltk.translate.bleu_score import corpus_bleu, SmoothingFunction
-import phsic
-from torchnlp.metrics import get_moses_multi_bleu
 
 
 class RL(nn.Module):

@@ -193,7 +193,7 @@ def validation(XU_valid, YU_valid, XD_valid, YD_valid, model, utt_vocab, config)
         batch_idx = indexes[k : k+step_size]
         utterance_pairs = [[XU + [utt_vocab.word2id['<SEP>']] + YU for XU, YU in zip(XU_valid[seq_idx], YU_valid[seq_idx])] for seq_idx in batch_idx]
         if config['use_da']:
-            da_pairs = [[XD + YD for XD, YD in zip(XD_valid[seq_idx], YD_valid[seq_idx])] for seq_idx in batch_idx]
+            da_pairs = [[[XD, YD] for XD, YD in zip(XD_valid[seq_idx], YD_valid[seq_idx])] for seq_idx in batch_idx]
         else:
             da_pairs = None
         (Xordered, Xmisordered, Xtarget), (DAordered, DAmisordered, DAtarget), Y = make_triple(utterance_pairs, utt_vocab, da_pairs)

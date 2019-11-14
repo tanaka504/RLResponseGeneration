@@ -29,7 +29,7 @@ class da_Vocab:
             self.load()
 
     def construct(self):
-        vocab = {'<PAD>': 0}
+        vocab = {'<PAD>': 0, }
         vocab_count = {}
 
         for post, cmnt in zip(self.posts, self.cmnts):
@@ -76,7 +76,7 @@ class utt_Vocab:
             self.load()
 
     def construct(self):
-        vocab = {'<UNK>': 0, '<EOS>': 1, '<BOS>': 2, '<PAD>': 3}
+        vocab = {'<UNK>': 0, '<EOS>': 1, '<BOS>': 2, '<PAD>': 3, '<SEP>': 4}
         vocab_count = {}
 
         for post, cmnt in zip(self.posts, self.cmnts):

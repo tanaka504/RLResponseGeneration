@@ -7,4 +7,3 @@ seaborn
 sklearn
 pickle
 nltk
-phsic-cli

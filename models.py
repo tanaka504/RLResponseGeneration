@@ -42,7 +42,8 @@ class RL(nn.Module):
         #     pred_seq.append(topi.item())
         #     CE_loss += criterion(logits.view(-1, len(self.utt_vocab.word2id)), Y_utt[:, j + 1])
 
-        # Sample Decoding
+        # Decoding
+        # TODO: not teacher forcing but inference
         pred_seq = []
         base_seq = []
         for j in range(len(Y_utt[0]) - 1):
@@ -64,8 +65,8 @@ class RL(nn.Module):
         base_seq = [s for s in base_seq.transpose(0,1).data.tolist()]
         ref_seq = [s for s in Y_utt.data.tolist()]
         context = [s for s in X_utt.data.tolist()]
-        reward = self.reward(pred_seq, ref_seq, context)
-        b = self.reward(base_seq, ref_seq, context)
+        reward = torch.tensor(self.reward(pred_seq, ref_seq, context)).to(self.device)
+        b = torch.tensor(self.reward(base_seq, ref_seq, context)).to(self.device)
 
         # Optimized with REINFORCE
         pg_loss = CE_loss * (reward - b)
@@ -74,11 +75,11 @@ class RL(nn.Module):
         if self.training:
             if last:
                 pg_loss.backward()
-                return pg_loss.item(), utt_context_hidden
+                return pg_loss.item(), utt_context_hidden, reward
             else:
-                return pg_loss, utt_context_hidden
+                return pg_loss, utt_context_hidden, reward
         else:
-            return pg_loss.item(), utt_context_hidden
+            return pg_loss.item(), utt_context_hidden, reward
 
     def reward(self, hypothesis, reference, context):
         # TODO: 報酬を考える
@@ -87,21 +88,22 @@ class RL(nn.Module):
         return r_bleu
 
     def calc_bleu(self, refs, hyps):
-        refs = [' '.join(list(map(str, ref))) for ref in refs]
-        hyps = [' '.join(list(map(str, hyp))) for hyp in hyps]
-        # return corpus_bleu(refs, hyps, smoothing_function=SmoothingFunction.method2)
-        return get_moses_multi_bleu(hyps, refs, lowercase=True)
+        # refs = [' '.join(list(map(str, ref))) for ref in refs]
+        # hyps = [' '.join(list(map(str, hyp))) for hyp in hyps]
+        # bleu = get_moses_multi_bleu(hyps, refs, lowercase=True)
+        # if bleu is None: bleu = 0.0
+        refs = [[list(map(str, ref))] for ref in refs]
+        hyps = [list(map(str, hyp)) for hyp in hyps]
+        bleu = corpus_bleu(refs, hyps, smoothing_function=SmoothingFunction().method2)
+        return bleu
 
     def calc_phsic(self, hyps, context):
         return 1
 
     def predict(self, X_utt, utt_context_hidden):
         with torch.no_grad():
-            da_dec_hidden, utt_dec_hidden = self._encoding(X_utt=X_utt, utt_context_hidden=utt_context_hidden, step_size=1)
-
-            utt_decoder_hidden = utt_dec_hidden
+            utt_decoder_hidden = self._encoding(X_utt=X_utt, utt_context_hidden=utt_context_hidden, step_size=1)
             prev_words = torch.tensor([[self.utt_vocab.word2id['<BOS>']]]).to(self.device)
-
             if self.config['beam_size']:
                 pred_seq, utt_decoder_hidden = self._beam_decode(decoder=self.utt_decoder,
                                                                  decoder_hiddens=utt_decoder_hidden,
@@ -109,7 +111,6 @@ class RL(nn.Module):
                 pred_seq = pred_seq[0]
             else:
                 pred_seq, utt_decoder_hidden = self._greedy_decode(prev_words, self.utt_decoder, utt_decoder_hidden)
-
         return pred_seq, utt_context_hidden
 
     def _encoding(self, X_utt, utt_context_hidden, step_size):
@@ -140,7 +141,7 @@ class RL(nn.Module):
         for _ in range(self.config['max_len']):
             logits, decoder_hidden, _ = decoder(prev_words, decoder_hidden)
             filtered_logits = self.top_k_top_p_filtering(logits=logits, top_k=self.config['top_k'], top_p=self.config['top_p'])
-            probs = torch.softmax(filtered_logits, dim=-1)
+            probs = F.softmax(filtered_logits, dim=-1)
             next_token = torch.multinomial(probs, 1)
             pred_seq.append(next_token)
             prev_words = torch.tensor(next_token).to(self.device)

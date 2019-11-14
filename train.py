@@ -168,7 +168,7 @@ def train(experiment, fine_tuning=False):
 
                 last = True if i == max_conv_len - 1 else False
                 if last:
-                    loss, utt_context_hidden = model.forward(X_utt=XU_tensor, Y_utt=YU_tensor, step_size=step_size,
+                    loss, utt_context_hidden, _ = model.forward(X_utt=XU_tensor, Y_utt=YU_tensor, step_size=step_size,
                                                          utt_context_hidden=utt_context_hidden,
                                                          criterion=criterion, last=last)
                     print_total_loss += loss
@@ -178,13 +178,13 @@ def train(experiment, fine_tuning=False):
                     utt_context_opt.step()
 
                 else:
-                    loss, utt_context_hidden = model.forward(X_utt=XU_tensor, Y_utt=YU_tensor, step_size=step_size,
+                    loss, utt_context_hidden, _ = model.forward(X_utt=XU_tensor, Y_utt=YU_tensor, step_size=step_size,
                                                    utt_context_hidden=utt_context_hidden,
                                                    criterion=criterion, last=last)
             k += step_size
 
         print()
-        valid_loss = validation(XU_valid=XU_valid, YU_valid=YU_valid, model=model, utt_context=utt_context, utt_vocab=utt_vocab)
+        valid_loss, valid_reward = validation(XU_valid=XU_valid, YU_valid=YU_valid, model=model, utt_context=utt_context, utt_vocab=utt_vocab)
 
         if _valid_loss is None:
             torch.save(utt_encoder.state_dict(), os.path.join(config['log_dir'], 'utt_enc_statevalidbest.model'))
@@ -222,7 +222,7 @@ def train(experiment, fine_tuning=False):
         if (e + 1) % config['LOGGING_FREQ'] == 0:
             print_loss_avg = print_total_loss / config['LOGGING_FREQ']
             print_total_loss = 0
-            print('steps %d\tloss %.4f\tvalid loss %.4f | exec time %.4f' % (e + 1, print_loss_avg, valid_loss, time.time() - tmp_time))
+            print('steps %d\tloss %.4f\tvalid loss %.4f\tvalid reward %.4f | exec time %.4f' % (e + 1, print_loss_avg, valid_loss, valid_reward, time.time() - tmp_time))
             plot_loss_avg = plot_total_loss / config['LOGGING_FREQ']
             plot_losses.append(plot_loss_avg)
             plot_total_loss = 0
@@ -235,6 +235,7 @@ def train(experiment, fine_tuning=False):
 
     print()
     print('Finish training | exec time: %.4f [sec]' % (time.time() - start))
+
 
 def validation(XU_valid, YU_valid, model, utt_context, utt_vocab):
     model.eval()
@@ -250,10 +251,10 @@ def validation(XU_valid, YU_valid, model, utt_context, utt_vocab):
             XU_tensor = torch.tensor([XU_seq[i]]).to(device)
             YU_tensor = torch.tensor([YU_seq[i]]).to(device)
 
-            loss, utt_context_hidden = model.forward(X_utt=XU_tensor, Y_utt=YU_tensor,
+            loss, utt_context_hidden, reward = model.forward(X_utt=XU_tensor, Y_utt=YU_tensor,
                                                   utt_context_hidden=utt_context_hidden, criterion=criterion, step_size=1, last=False)
             total_loss += loss
-    return total_loss
+    return total_loss, reward
 
 if __name__ == '__main__':
     global args, device

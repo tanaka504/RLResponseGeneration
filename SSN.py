@@ -6,7 +6,7 @@ from nn_blocks import *
 from train import initialize_env, make_batchidx, parse
 from utils import *
 import time, random
-from sklearn.metrics import accuracy_score
+from sklearn.metrics import accuracy_score, f1_score
 import numpy as np
 
 class OrderPredictor(nn.Module):
@@ -89,13 +89,15 @@ def train(experiment):
     utterance_pair_encoder = UtteranceEncoder(utt_input_size=len(utt_vocab.word2id), embed_size=config['SSN_EMBED'],
                                               utterance_hidden=config['SSN_ENC_HIDDEN'], padding_idx=utt_vocab.word2id['<PAD>']).to(device)
     if config['use_da']:
-        da_pair_encoder = DAPairEncoder(da_hidden_size=config['SSN_DA_HIDDEN'], da_embed_size=config['SSN_DA_EMBED'], da_vocab_size=len(da_vocab.word2id))
+        da_pair_encoder = DAPairEncoder(da_hidden_size=config['SSN_DA_HIDDEN'], da_embed_size=config['SSN_DA_EMBED'], da_vocab_size=len(da_vocab.word2id)).to(device)
+        da_pair_encoder_opt = optim.Adam(da_pair_encoder.parameters(), lr=lr)
     else:
         da_pair_encoder = None
     order_reasoning_layer = OrderReasoningLayer(encoder_hidden_size=config['SSN_ENC_HIDDEN'], hidden_size=config['SSN_REASONING_HIDDEN'],
                                                 middle_layer_size=config['SSN_MIDDLE_LAYER'], da_hidden_size=config['SSN_DA_HIDDEN'], config=config).to(device)
     utterance_pair_encoder_opt = optim.Adam(utterance_pair_encoder.parameters(), lr=lr)
     order_reasoning_layer_opt = optim.Adam(order_reasoning_layer.parameters(), lr=lr)
+
 
     predictor = OrderPredictor(utterance_pair_encoder=utterance_pair_encoder, order_reasoning_layer=order_reasoning_layer,
                                da_pair_encoder=da_pair_encoder, config=config, device=device).to(device)
@@ -138,25 +140,28 @@ def train(experiment):
         print()
         valid_loss = validation(XU_valid=XU_valid, YU_valid=YU_valid, XD_valid=XD_valid, YD_valid=YD_valid,
                                 model=predictor, utt_vocab=utt_vocab, config=config)
+
+        def save_model(filename):
+            torch.save(utterance_pair_encoder.state_dict(), os.path.join(config['log_dir'], 'utt_pair_enc_state{}.model'.format(filename)))
+            torch.save(order_reasoning_layer.state_dict(), os.path.join(config['log_dir'], 'ord_rsn_state{}.model'.format(filename)))
+            if config['use_da']:
+                torch.save(da_pair_encoder.state_dict(), os.path.join(config['log_dir'], 'da_pair_enc_state{}.model'.format(filename)))
+
         if _valid_loss is None:
-            torch.save(utterance_pair_encoder.state_dict(), os.path.join(config['log_dir'], 'utt_pair_enc_statevalidbest.model'))
-            torch.save(order_reasoning_layer.state_dict(), os.path.join(config['log_dir'], 'ord_rsn_statevalidbest.model'))
+            save_model('validbest')
             _valid_loss = valid_loss
         else:
             if _valid_loss > valid_loss:
-                torch.save(utterance_pair_encoder.state_dict(), os.path.join(config['log_dir'], 'utt_pair_enc_statevalidbest.model'))
-                torch.save(order_reasoning_layer.state_dict(), os.path.join(config['log_dir'], 'ord_rsn_statevalidbest.model'))
+                save_model('validbest')
                 _valid_loss = valid_loss
                 print('valid loss update, save model')
 
         if _train_loss is None:
-            torch.save(utterance_pair_encoder.state_dict(), os.path.join(config['log_dir'], 'utt_pair_enc_statetrainbest.model'))
-            torch.save(order_reasoning_layer.state_dict(), os.path.join(config['log_dir'], 'ord_rsn_statetrainbest.model'))
+            save_model('trainbest')
             _train_loss = print_total_loss
         else:
             if _train_loss > print_total_loss:
-                torch.save(utterance_pair_encoder.state_dict(), os.path.join(config['log_dir'], 'utt_pair_enc_statetrainbest.model'))
-                torch.save(order_reasoning_layer.state_dict(), os.path.join(config['log_dir'], 'ord_rsn_statetrainbest.model'))
+                save_model('trainbest')
                 _train_loss = print_total_loss
                 early_stop = 0
                 print('train loss update, save model')
@@ -172,8 +177,7 @@ def train(experiment):
 
         if (e + 1) % config['SAVE_MODEL'] == 0:
             print('save model')
-            torch.save(utterance_pair_encoder.state_dict(), os.path.join(config['log_dir'], 'utt_pair_enc_state{}.model'.format(e+1)))
-            torch.save(order_reasoning_layer.state_dict(), os.path.join(config['log_dir'], 'ord_rsn_state{}.model'.format((e+1))))
+            save_model(e+1)
 
     print()
     print('Finish training | exec time: %.4f [sec]' % (time.time() - start))
@@ -208,7 +212,52 @@ def validation(XU_valid, YU_valid, XD_valid, YD_valid, model, utt_vocab, config)
     return total_loss
 
 
+def evaluate(experiment):
+    config = initialize_env(experiment)
+    XD_test, YD_test, XU_test, YU_test = create_traindata(config=config, prefix='test')
+    da_vocab = da_Vocab(config=config, create_vocab=False)
+    utt_vocab = utt_Vocab(config=config, create_vocab=False)
+    XD_test, YD_test = da_vocab.tokenize(XD_test, YD_test)
+    XU_test, YU_test = utt_vocab.tokenize(XU_test, YU_test)
 
+    utterance_pair_encoder = UtteranceEncoder(utt_input_size=len(utt_vocab.word2id), embed_size=config['SSN_EMBED'],
+                                              utterance_hidden=config['SSN_ENC_HIDDEN'], padding_idx=utt_vocab.word2id['<PAD>']).to(device)
+    utterance_pair_encoder.load_state_dict(torch.load(os.path.join(config['log_dir'], 'utt_pair_enc_statevalidbest.model')))
+    if config['use_da']:
+        da_pair_encoder = DAPairEncoder(da_hidden_size=config['SSN_DA_HIDDEN'], da_embed_size=config['SSN_DA_EMBED'], da_vocab_size=len(da_vocab.word2id)).to(device)
+        da_pair_encoder.load_state_dict(torch.load(os.path.join(config['log_dir'], 'da_pair_enc_')))
+    else:
+        da_pair_encoder = None
+    order_reasoning_layer = OrderReasoningLayer(encoder_hidden_size=config['SSN_ENC_HIDDEN'], hidden_size=config['SSN_REASONING_HIDDEN'],
+                                                middle_layer_size=config['SSN_MIDDLE_LAYER'], da_hidden_size=config['SSN_DA_HIDDEN'], config=config).to(device)
+    predictor = OrderPredictor(utterance_pair_encoder=utterance_pair_encoder, order_reasoning_layer=order_reasoning_layer,
+                               da_pair_encoder=da_pair_encoder, config=config, device=device).to(device)
+    criterion = nn.CrossEntropyLoss()
+    predictor.eval()
+    k = 0
+    y_preds = []
+    y_trues = []
+    acc = []
+    indexes = [i for i in range(len(XU_test))]
+    for _ in range(5):
+        while k < len(indexes):
+            step_size = min(config['BATCH_SIZE'], len(indexes) - k)
+            batch_idx = indexes[k : k + step_size]
+            utterance_pairs = [[XU + [utt_vocab.word2id['<SEP>']] + YU for XU, YU in zip(XU_test[seq_idx], YU_test[seq_idx])] for seq_idx in batch_idx]
+            if config['use_da']:
+                da_pairs = [[[XD, YD] for XD, YD in zip(XD_test[seq_idx], YD_test[seq_idx])] for seq_idx in batch_idx]
+            else:
+                da_pairs = None
+            (Xordered, Xmisordered, Xtarget), (DAordered, DAmisordered, DAtarget), Y = make_triple(utterance_pairs, utt_vocab, da_pairs)
+            loss, preds = predictor.forward(XOrdered=Xordered, XMisOrdered=Xmisordered, XTarget=Xtarget,
+                                        DAOrdered=DAordered, DAMisOrdered=DAmisordered, DATarget=DAtarget,
+                                        Y=Y, step_size=step_size, criterion=criterion)
+            result = [0 if line[0] > line[1] else 1 for line in preds]
+            y_preds.extend(result)
+            y_trues.extend(Y.data.tolist())
+            k += step_size
+        acc.append(accuracy_score(y_pred=y_preds, y_true=y_trues))
+    print('Avg. of Accuracy: {}'.format(np.mean(acc)))
 
 def make_triple(utterance_pairs, utt_vocab, da_pairs=None):
     Xordered = []

@@ -121,6 +121,8 @@ def train(experiment):
             batch_idx = indexes[k: k+step_size]
             utterance_pair_encoder_opt.zero_grad()
             order_reasoning_layer_opt.zero_grad()
+            if config['use_da']:
+                da_pair_encoder_opt.zero_grad()
             print('\rTRAINING|\t{} / {}'.format(k + step_size, len(indexes)), end='')
 
             utterance_pairs = [[XU + [utt_vocab.word2id['<SEP>']] + YU for XU, YU in zip(XU_train[seq_idx], YU_train[seq_idx])] for seq_idx in batch_idx]
@@ -136,6 +138,8 @@ def train(experiment):
             print_total_loss += loss
             utterance_pair_encoder_opt.step()
             order_reasoning_layer_opt.step()
+            if config['use_da']:
+                da_pair_encoder_opt.step()
             k += step_size
         print()
         valid_loss = validation(XU_valid=XU_valid, YU_valid=YU_valid, XD_valid=XD_valid, YD_valid=YD_valid,

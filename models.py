@@ -1,6 +1,3 @@
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
 from nn_blocks import *
 from queue import PriorityQueue
 import operator

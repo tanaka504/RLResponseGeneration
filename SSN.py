@@ -11,13 +11,12 @@ import numpy as np
 
 class OrderPredictor(nn.Module):
     def __init__(self, utterance_pair_encoder, da_pair_encoder,
-                 order_reasoning_layer, config, device='cpu'):
+                 order_reasoning_layer, config):
         super(OrderPredictor, self).__init__()
         self.utterance_pair_encoder = utterance_pair_encoder
         self.da_pair_encoder = da_pair_encoder
         self.order_reasoning_layer = order_reasoning_layer
         self.config = config
-        self.device = device
 
     def forward(self, XOrdered, XMisOrdered, XTarget,
                 DAOrdered, DAMisOrdered, DATarget,
@@ -87,20 +86,20 @@ def train(experiment):
     print_total_loss = 0
 
     utterance_pair_encoder = UtteranceEncoder(utt_input_size=len(utt_vocab.word2id), embed_size=config['SSN_EMBED'],
-                                              utterance_hidden=config['SSN_ENC_HIDDEN'], padding_idx=utt_vocab.word2id['<PAD>']).to(device)
+                                              utterance_hidden=config['SSN_ENC_HIDDEN'], padding_idx=utt_vocab.word2id['<PAD>']).cuda()
     if config['use_da']:
-        da_pair_encoder = DAPairEncoder(da_hidden_size=config['SSN_DA_HIDDEN'], da_embed_size=config['SSN_DA_EMBED'], da_vocab_size=len(da_vocab.word2id)).to(device)
+        da_pair_encoder = DAPairEncoder(da_hidden_size=config['SSN_DA_HIDDEN'], da_embed_size=config['SSN_DA_EMBED'], da_vocab_size=len(da_vocab.word2id)).cuda()
         da_pair_encoder_opt = optim.Adam(da_pair_encoder.parameters(), lr=lr)
     else:
         da_pair_encoder = None
     order_reasoning_layer = OrderReasoningLayer(encoder_hidden_size=config['SSN_ENC_HIDDEN'], hidden_size=config['SSN_REASONING_HIDDEN'],
-                                                middle_layer_size=config['SSN_MIDDLE_LAYER'], da_hidden_size=config['SSN_DA_HIDDEN'], config=config).to(device)
+                                                middle_layer_size=config['SSN_MIDDLE_LAYER'], da_hidden_size=config['SSN_DA_HIDDEN'], config=config).cuda()
     utterance_pair_encoder_opt = optim.Adam(utterance_pair_encoder.parameters(), lr=lr)
     order_reasoning_layer_opt = optim.Adam(order_reasoning_layer.parameters(), lr=lr)
 
 
     predictor = OrderPredictor(utterance_pair_encoder=utterance_pair_encoder, order_reasoning_layer=order_reasoning_layer,
-                               da_pair_encoder=da_pair_encoder, config=config, device=device).to(device)
+                               da_pair_encoder=da_pair_encoder, config=config, device=device).cuda()
     criterion = nn.CrossEntropyLoss()
     print('--- Start Training ---')
     start = time.time()
@@ -225,19 +224,19 @@ def evaluate(experiment):
     XU_test, YU_test = utt_vocab.tokenize(XU_test, YU_test)
 
     utterance_pair_encoder = UtteranceEncoder(utt_input_size=len(utt_vocab.word2id), embed_size=config['SSN_EMBED'],
-                                              utterance_hidden=config['SSN_ENC_HIDDEN'], padding_idx=utt_vocab.word2id['<PAD>']).to(device)
+                                              utterance_hidden=config['SSN_ENC_HIDDEN'], padding_idx=utt_vocab.word2id['<PAD>']).cuda()
     utterance_pair_encoder.load_state_dict(torch.load(os.path.join(config['log_dir'], 'utt_pair_enc_statevalidbest.model')))
     if config['use_da']:
-        da_pair_encoder = DAPairEncoder(da_hidden_size=config['SSN_DA_HIDDEN'], da_embed_size=config['SSN_DA_EMBED'], da_vocab_size=len(da_vocab.word2id)).to(device)
+        da_pair_encoder = DAPairEncoder(da_hidden_size=config['SSN_DA_HIDDEN'], da_embed_size=config['SSN_DA_EMBED'], da_vocab_size=len(da_vocab.word2id)).cuda()
         da_pair_encoder.load_state_dict(torch.load(os.path.join(config['log_dir'], 'da_pair_enc_statevalidbest.model')))
     else:
         da_pair_encoder = None
     order_reasoning_layer = OrderReasoningLayer(encoder_hidden_size=config['SSN_ENC_HIDDEN'], hidden_size=config['SSN_REASONING_HIDDEN'],
-                                                middle_layer_size=config['SSN_MIDDLE_LAYER'], da_hidden_size=config['SSN_DA_HIDDEN'], config=config).to(device)
+                                                middle_layer_size=config['SSN_MIDDLE_LAYER'], da_hidden_size=config['SSN_DA_HIDDEN'], config=config).cuda()
     order_reasoning_layer.load_state_dict(torch.load(os.path.join(config['log_dir'], 'ord_rsn_statevalidbest.model')))
 
     predictor = OrderPredictor(utterance_pair_encoder=utterance_pair_encoder, order_reasoning_layer=order_reasoning_layer,
-                               da_pair_encoder=da_pair_encoder, config=config, device=device).to(device)
+                               da_pair_encoder=da_pair_encoder, config=config, device=device).cuda()
     criterion = nn.CrossEntropyLoss()
     predictor.eval()
     k = 0
@@ -291,10 +290,10 @@ def make_triple(utterance_pairs, utt_vocab, da_pairs=None):
     Xmisordered = padding(Xmisordered, utt_vocab.word2id['<PAD>'])
     Xtarget = padding(Xtarget, utt_vocab.word2id['<PAD>'])
     if not da_pairs is None:
-        da_ordered = torch.tensor(DAordered).to(device)
-        da_misordered = torch.tensor(DAmisordered).to(device)
-        da_target = torch.tensor(DAtarget).to(device)
-    Y = torch.tensor(Y).to(device)
+        da_ordered = torch.tensor(DAordered).cuda()
+        da_misordered = torch.tensor(DAmisordered).cuda()
+        da_target = torch.tensor(DAtarget).cuda()
+    Y = torch.tensor(Y).cuda()
     return (Xordered, Xmisordered, Xtarget), (da_ordered, da_misordered, da_target), Y
 
 
@@ -333,13 +332,13 @@ def padding(batch, pad_idx):
         max_seq_len = max(len(b[i]) + 1 for b in batch)
         for ci in range(len(batch)):
             batch[ci][i] = batch[ci][i] + [pad_idx] * (max_seq_len - len(batch[ci][i]))
-        pair_list.append(torch.tensor([b[i] for b in batch]).to(device))
+        pair_list.append(torch.tensor([b[i] for b in batch]).cuda())
     return pair_list
 
 
 if __name__ == '__main__':
-    global args, device
-    args, device = parse()
+    global args
+    args = parse()
 
     train(args.expr)
     # evaluate(args.expr)

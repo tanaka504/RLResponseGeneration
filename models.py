@@ -8,9 +8,8 @@ from nltk.translate.bleu_score import corpus_bleu, SmoothingFunction
 
 
 class RL(nn.Module):
-    def __init__(self, utt_vocab, utt_encoder, utt_context, utt_decoder, device, config):
+    def __init__(self, utt_vocab, utt_encoder, utt_context, utt_decoder, config):
         super(RL, self).__init__()
-        self.device = device
         self.utt_vocab = utt_vocab
         self.utt_encoder = utt_encoder
         self.utt_context = utt_context
@@ -113,7 +112,7 @@ class RL(nn.Module):
 
     def _encoding(self, X_utt, utt_context_hidden, step_size):
         # Encode Utterance
-        utt_encoder_hidden = self.utt_encoder.initHidden(step_size, self.device)
+        utt_encoder_hidden = self.utt_encoder.initHidden(step_size)
         utt_encoder_output, utt_encoder_hidden = self.utt_encoder(X_utt, utt_encoder_hidden)  # (batch_size, 1, UTT_HIDDEN)
 
         # Update Context Encoder
@@ -244,10 +243,9 @@ class RL(nn.Module):
 
 
 class HRED(nn.Module):
-    def __init__(self, utt_vocab, device,
+    def __init__(self, utt_vocab,
                  utt_encoder, utt_context, utt_decoder, config):
         super(HRED, self).__init__()
-        self.device = device
         self.utt_vocab = utt_vocab
         self.utt_encoder = utt_encoder
         self.utt_context = utt_context
@@ -296,7 +294,7 @@ class HRED(nn.Module):
 
     def _encoding(self, X_utt, utt_context_hidden, step_size):
         # Encode Utterance
-        utt_encoder_hidden = self.utt_encoder.initHidden(step_size, self.device)
+        utt_encoder_hidden = self.utt_encoder.initHidden(step_size)
         utt_encoder_output, utt_encoder_hidden = self.utt_encoder(X_utt, utt_encoder_hidden)  # (batch_size, 1, UTT_HIDDEN)
 
         # Update Context Encoder
@@ -399,17 +397,16 @@ class HRED(nn.Module):
 
 
 class seq2seq(nn.Module):
-    def __init__(self, device):
+    def __init__(self):
         super(seq2seq, self).__init__()
-        self.device = device
 
     def forward(self, X, Y, encoder, decoder, context, step_size, criterion, config):
         loss = 0
 
-        encoder_hidden = encoder.initHidden(step_size, self.device)
+        encoder_hidden = encoder.initHidden(step_size)
         encoder_output, encoder_hidden = encoder(X, encoder_hidden)
 
-        context_hidden = context.initHidden(step_size, self.device)
+        context_hidden = context.initHidden(step_size)
         context_output, context_hidden = context(encoder_output, context_hidden)
 
         decoder_hidden = context_hidden
@@ -426,10 +423,10 @@ class seq2seq(nn.Module):
 
     def predict(self, X, encoder, decoder, context, config, EOS_token, BOS_token):
         with torch.no_grad():
-            encoder_hidden = encoder.initHidden(1, self.device)
+            encoder_hidden = encoder.initHidden(1)
             encoder_output, _ = encoder(X, encoder_hidden)
 
-            context_hidden = context.initHidden(1, self.device)
+            context_hidden = context.initHidden(1)
             context_output, context_hidden = context(encoder_output, context_hidden)
             
             decoder_hidden = context_hidden

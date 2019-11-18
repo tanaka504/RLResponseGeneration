@@ -107,11 +107,11 @@ def train(experiment, fine_tuning=False):
         utt_context.load_state_dict(torch.load(os.path.join(config['log_root'], pretrain_model, 'utt_context_state{}.model'.format(args.epoch))))
 
     if 'HRED' in args.expr:
-        model = HRED(utt_vocab=utt_vocab, device=device,
+        model = HRED(utt_vocab=utt_vocab,
                      utt_encoder=utt_encoder, utt_context=utt_context,
                      utt_decoder=utt_decoder, config=config).cuda()
     else:
-        model = RL(utt_vocab=utt_vocab, device=device,
+        model = RL(utt_vocab=utt_vocab,
                 utt_encoder=utt_encoder,
                 utt_context=utt_context,
                 utt_decoder=utt_decoder, config=config).cuda()
@@ -139,7 +139,7 @@ def train(experiment, fine_tuning=False):
             # initialize
             step_size = min(batch_size, len(indexes) - k)
             batch_idx = indexes[k : k + step_size]
-            utt_context_hidden = utt_context.initHidden(step_size, device)
+            utt_context_hidden = utt_context.initHidden(step_size)
             utt_encoder_opt.zero_grad()
             utt_decoder_opt.zero_grad()
             utt_context_opt.zero_grad()
@@ -228,7 +228,7 @@ def train(experiment, fine_tuning=False):
 
 def validation(XU_valid, YU_valid, model, utt_context, utt_vocab):
     model.eval()
-    utt_context_hidden = utt_context.initHidden(1, device)
+    utt_context_hidden = utt_context.initHidden(1)
     criterion = nn.CrossEntropyLoss(ignore_index=utt_vocab.word2id['<PAD>'], reduce=False)
     total_loss = 0
 

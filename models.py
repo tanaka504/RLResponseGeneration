@@ -67,8 +67,9 @@ class RL(nn.Module):
         b = torch.tensor(self.reward(base_seq, ref_seq, context)).to(self.device)
 
         # Optimized with REINFORCE
-        pg_loss = CE_loss * (reward - b)
-        pg_loss = pg_loss.mean()
+        RL_loss = CE_loss * (reward - b)
+        # pg_loss = pg_loss.mean()
+        pg_loss = CE_loss * self.config['lambda'] + RL_loss * (1 - self.config['lambda'])
 
         if self.training:
             if last:
@@ -94,9 +95,6 @@ class RL(nn.Module):
         hyps = [list(map(str, hyp)) for hyp in hyps]
         bleu = corpus_bleu(refs, hyps, smoothing_function=SmoothingFunction().method2)
         return bleu
-
-    def calc_phsic(self, hyps, context):
-        return 1
 
     def predict(self, X_utt, utt_context_hidden):
         with torch.no_grad():
@@ -187,9 +185,7 @@ class RL(nn.Module):
                 decoder_hidden = (decoder_hiddens[0][:, idx, :].unsqueeze(0), decoder_hiddens[1][idx, :, :].unsqueeze(0))
             else:
                 decoder_hidden = decoder_hiddens[:, idx, :].unsqueeze(0)
-
             # encoder_output = encoder_outputs[idx, :, :].unsqueeze(1)
-
             decoder_input = torch.tensor([[BOS_token]]).to(self.device)
 
             endnodes = []
@@ -201,29 +197,24 @@ class RL(nn.Module):
 
             while 1:
                 if qsize > 2000: break
-
                 score, n = nodes.get()
                 decoder_input = n.wordid
                 decoder_hidden = n.hidden
-
                 if n.wordid.item() == EOS_token and n.prevNode != None:
                     endnodes.append((score, n))
                     if len(endnodes) >= number_required:
                         break
                     else:
                         continue
-
                 decoder_output, decoder_hidden, _ = decoder(decoder_input, decoder_hidden)
                 log_prob, indexes = torch.topk(decoder_output, config['beam_size'])
                 nextnodes = []
-
                 for new_k in range(config['beam_size']):
                     decoded_t = indexes[0][new_k].view(1, -1)
                     log_p = log_prob[0][new_k].item()
                     node = BeamNode(hidden=decoder_hidden, previousNode=n, wordId=decoded_t, logProb=n.logp + log_p, length=n.length + 1)
                     score = -node.eval()
                     nextnodes.append((score, node))
-
                 for i in range(len(nextnodes)):
                     score, nn = nextnodes[i]
                     nodes.put((score, nn))
@@ -280,11 +271,11 @@ class HRED(nn.Module):
         if self.training:
             if last:
                 loss.backward()
-                return loss.item(), utt_context_hidden
+                return loss.item(), utt_context_hidden, 0
             else:
-                return loss, utt_context_hidden
+                return loss, utt_context_hidden, 0
         else:
-            return loss.item(), utt_context_hidden
+            return loss.item(), utt_context_hidden, 0
 
     def predict(self, X_utt, utt_context_hidden, step_size=1):
         with torch.no_grad():

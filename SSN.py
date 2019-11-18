@@ -229,11 +229,13 @@ def evaluate(experiment):
     utterance_pair_encoder.load_state_dict(torch.load(os.path.join(config['log_dir'], 'utt_pair_enc_statevalidbest.model')))
     if config['use_da']:
         da_pair_encoder = DAPairEncoder(da_hidden_size=config['SSN_DA_HIDDEN'], da_embed_size=config['SSN_DA_EMBED'], da_vocab_size=len(da_vocab.word2id)).to(device)
-        da_pair_encoder.load_state_dict(torch.load(os.path.join(config['log_dir'], 'da_pair_enc_')))
+        da_pair_encoder.load_state_dict(torch.load(os.path.join(config['log_dir'], 'da_pair_enc_statevalidbest.model')))
     else:
         da_pair_encoder = None
     order_reasoning_layer = OrderReasoningLayer(encoder_hidden_size=config['SSN_ENC_HIDDEN'], hidden_size=config['SSN_REASONING_HIDDEN'],
                                                 middle_layer_size=config['SSN_MIDDLE_LAYER'], da_hidden_size=config['SSN_DA_HIDDEN'], config=config).to(device)
+    order_reasoning_layer.load_state_dict(torch.load(os.path.join(config['log_dir'], 'ord_rsn_statevalidbest.model')))
+
     predictor = OrderPredictor(utterance_pair_encoder=utterance_pair_encoder, order_reasoning_layer=order_reasoning_layer,
                                da_pair_encoder=da_pair_encoder, config=config, device=device).to(device)
     criterion = nn.CrossEntropyLoss()
@@ -297,8 +299,9 @@ def make_triple(utterance_pairs, utt_vocab, da_pairs=None):
 
 
 def sample_triple(pairs, da_pairs):
-    sampled_idx = random.sample([i for i in range(len(pairs)-1)], 3)
-    i, j, k = sorted(sampled_idx)
+    # sampled_idx = random.sample([i for i in range(len(pairs)-1)], 3)
+    # i, j, k = sorted(sampled_idx)
+    i, j, k = -4, -3, -2
     ordered = [pairs[i], pairs[j], pairs[k]]
     misordered = [pairs[i], pairs[k], pairs[j]]
     if da_pairs is None:
@@ -337,4 +340,6 @@ def padding(batch, pad_idx):
 if __name__ == '__main__':
     global args, device
     args, device = parse()
+
     train(args.expr)
+    # evaluate(args.expr)

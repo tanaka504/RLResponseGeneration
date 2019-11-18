@@ -16,7 +16,7 @@ class DAEncoder(nn.Module):
         return embedding
 
     def initHidden(self, batch_size, device):
-        return torch.zeros(batch_size, self.hidden_size).to(device)
+        return torch.zeros(batch_size, self.hidden_size).cuda(device)
 
 
 class DAContextEncoder(nn.Module):
@@ -32,7 +32,7 @@ class DAContextEncoder(nn.Module):
 
     def initHidden(self, batch_size, device):
         # h_0 = (num_layers * num_directions, batch_size, hidden_size)
-        return torch.zeros(1, batch_size, self.hidden_size).to(device)
+        return torch.zeros(1, batch_size, self.hidden_size).cuda(device)
 
 
 class UtteranceEncoder(nn.Module):
@@ -66,7 +66,7 @@ class UtteranceEncoder(nn.Module):
         return output, hidden
 
     def initHidden(self, batch_size, device):
-        return torch.zeros(2, batch_size, self.hidden_size).to(device)
+        return torch.zeros(2, batch_size, self.hidden_size).cuda(device)
 
 
 class UtteranceContextEncoder(nn.Module):
@@ -81,7 +81,7 @@ class UtteranceContextEncoder(nn.Module):
         return output, hidden
 
     def initHidden(self, batch_size, device):
-        return torch.zeros(1, batch_size, self.hidden_size).to(device)
+        return torch.zeros(1, batch_size, self.hidden_size).cuda(device)
 
 
 class UtteranceDecoder(nn.Module):
@@ -175,10 +175,10 @@ class OrderReasoningLayer(nn.Module):
         return pred
 
     def initHidden(self, batch_size, device):
-        return torch.zeros(1, batch_size, self.hidden_size).to(device)
+        return torch.zeros(1, batch_size, self.hidden_size).cuda(device)
 
     def initDAHidden(self, batch_size, device):
-        return torch.zeros(1, batch_size, self.da_hidden_size).to(device)
+        return torch.zeros(1, batch_size, self.da_hidden_size).cuda(device)
 
     def _invert_tensor(self, X):
         return X[torch.arange(X.size(0)-1, -1, -1)]

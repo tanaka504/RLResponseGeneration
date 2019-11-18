@@ -28,24 +28,24 @@ def evaluate(experiment):
     XU_test, YU_test = utt_vocab.tokenize(XU_test, YU_test)
 
     print('load models')
-    utt_encoder = UtteranceEncoder(utt_input_size=len(utt_vocab.word2id), embed_size=config['UTT_EMBED'], utterance_hidden=config['UTT_HIDDEN'], padding_idx=utt_vocab.word2id['<UttPAD>'], fine_tuning=True).to(device)
+    utt_encoder = UtteranceEncoder(utt_input_size=len(utt_vocab.word2id), embed_size=config['UTT_EMBED'], utterance_hidden=config['UTT_HIDDEN'], padding_idx=utt_vocab.word2id['<UttPAD>'], fine_tuning=True).cuda(device)
     utt_encoder.load_state_dict(torch.load(os.path.join(config['log_dir'], 'utt_enc_state{}.model'.format(args.epoch))))
 
-    utt_context = UtteranceContextEncoder(utterance_hidden_size=config['UTT_CONTEXT']).to(device)
+    utt_context = UtteranceContextEncoder(utterance_hidden_size=config['UTT_CONTEXT']).cuda(device)
     utt_context.load_state_dict(torch.load(os.path.join(config['log_dir'], 'utt_context_state{}.model'.format(args.epoch))))
 
-    utt_decoder = UtteranceDecoder(utterance_hidden_size=config['DEC_HIDDEN'], utt_embed_size=config['UTT_EMBED'], utt_vocab_size=len(utt_vocab.word2id)).to(device)
+    utt_decoder = UtteranceDecoder(utterance_hidden_size=config['DEC_HIDDEN'], utt_embed_size=config['UTT_EMBED'], utt_vocab_size=len(utt_vocab.word2id)).cuda(device)
     utt_decoder.load_state_dict(torch.load(os.path.join(config['log_dir'], 'utt_dec_state{}.model'.format(args.epoch))))
 
     if 'HRED' in args.expr:
         model = HRED(utt_vocab=utt_vocab, device=device,
                     utt_encoder=utt_encoder, utt_context=utt_context,
-                    utt_decoder=utt_decoder, config=config).to(device)
+                    utt_decoder=utt_decoder, config=config).cuda(device)
     else:
         model = RL(utt_vocab=utt_vocab, device=device,
                 utt_encoder=utt_encoder,
                 utt_context=utt_context,
-                utt_decoder=utt_decoder, config=config).to(device)
+                utt_decoder=utt_decoder, config=config).cuda(device)
 
 
     utt_context_hidden = utt_context.initHidden(1, device) if config['use_uttcontext'] else None
@@ -63,8 +63,8 @@ def evaluate(experiment):
         assert len(X_seq) == len(Y_seq), 'Unexpect sequence len in test data'
 
         for i in range(0, len(X_seq)):
-            X_tensor = torch.tensor([[X_seq[i]]]).to(device)
-            XU_tensor = torch.tensor([XU_seq[i]]).to(device)
+            X_tensor = torch.tensor([[X_seq[i]]]).cuda(device)
+            XU_tensor = torch.tensor([XU_seq[i]]).cuda(device)
 
             pred_seq, da_context_hidden, utt_context_hidden, decoder_output = model.predict(X_utt=XU_tensor, utt_context_hidden=utt_context_hidden)
         Y_tensor = Y_seq[-1]

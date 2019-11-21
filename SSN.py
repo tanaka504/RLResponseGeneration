@@ -146,9 +146,12 @@ def train(experiment):
             Xordered = [XOrdered[i] for i in batch_idx]
             Xmisordered = [XMisOrdered[i] for i in batch_idx]
             Xtarget = [XTarget[i] for i in batch_idx]
-            DAordered = [DAOrdered[i] for i in batch_idx]
-            DAmisordered = [DAMisOrdered[i] for i in batch_idx]
-            DAtarget = [DATarget[i] for i in batch_idx]
+            if config['use_da']:
+                DAordered = [DAOrdered[i] for i in batch_idx]
+                DAmisordered = [DAMisOrdered[i] for i in batch_idx]
+                DAtarget = [DATarget[i] for i in batch_idx]
+            else:
+                DAordered, DAmisordered, DAtarget = None, None, None
             y = [Y[i] for i in batch_idx]
             loss, pred = predictor.forward(XOrdered=Xordered, XMisOrdered=Xmisordered, XTarget=Xtarget,
                                            DAOrdered=DAordered, DAMisOrdered=DAmisordered, DATarget=DAtarget,

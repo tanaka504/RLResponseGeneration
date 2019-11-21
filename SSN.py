@@ -225,6 +225,16 @@ def validation(XU_valid, YU_valid, XD_valid, YD_valid, model, utt_vocab, config)
         else:
             da_pairs = None
         (Xordered, Xmisordered, Xtarget), (DAordered, DAmisordered, DAtarget), Y = make_triple(utterance_pairs, utt_vocab, da_pairs)
+        Xordered = padding(Xordered, pad_idx=utt_vocab.word2id['<PAD>'])
+        Xmisordered = padding(Xmisordered, pad_idx=utt_vocab.word2id['<PAD>'])
+        Xtarget = padding(Xtarget, pad_idx=utt_vocab.word2id['<PAD>'])
+        if config['use_da']:
+            DAordered = torch.tensor(DAordered).cuda()
+            DAmisordered = torch.tensor(DAmisordered).cuda()
+            DAtarget = torch.tensor(DAtarget).cuda()
+        else:
+            DAordered, DAmisordered, DAtarget = None, None, None
+        Y = torch.tensor(Y).cuda()
         loss, preds = model.forward(XOrdered=Xordered, XMisOrdered=Xmisordered, XTarget=Xtarget,
                                     DAOrdered=DAordered, DAMisOrdered=DAmisordered, DATarget=DAtarget,
                                     Y=Y, step_size=step_size, criterion=criterion)

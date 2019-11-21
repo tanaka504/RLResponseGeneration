@@ -115,8 +115,7 @@ def train(experiment):
         da_pairs = [[batch[pi] for pi in range(0, len(batch), 2)] for batch in da_pairs]
     else:
         da_pairs = None
-    (XOrdered, XMisOrdered, XTarget), (DAOrdered, DAMisOrdered, DATarget), Y = make_triple(utterance_pairs, utt_vocab, da_pairs)
-
+    (XOrdered, XMisOrdered, XTarget), (DAOrdered, DAMisOrdered, DATarget), Y = make_triple(utterance_pairs=utterance_pairs, utt_vocab=utt_vocab, da_pairs=da_pairs)
     for e in range(config['EPOCH']):
         tmp_time = time.time()
         print('Epoch {} start'.format(e+1))
@@ -140,19 +139,19 @@ def train(experiment):
             #     da_pairs = [[batch[pi] for pi in range(0, len(batch), 2)] for batch in da_pairs]
             # else:
             #     da_pairs = None
-            #     (Xordered, Xmisordered, Xtarget), (DAordered, DAmisordered, DAtarget), y = make_triple(utterance_pairs, utt_vocab, da_pairs)
+            # (Xordered, Xmisordered, Xtarget), (DAordered, DAmisordered, DAtarget), y = make_triple(utterance_pairs, utt_vocab, da_pairs)
 
             # utterance_pairs: (batch_size, conv_len, seq_len)
-            Xordered = [XOrdered[i] for i in batch_idx]
-            Xmisordered = [XMisOrdered[i] for i in batch_idx]
-            Xtarget = [XTarget[i] for i in batch_idx]
+            Xordered = padding([XOrdered[i] for i in batch_idx], pad_idx=utt_vocab.word2id['<PAD>'])
+            Xmisordered = padding([XMisOrdered[i] for i in batch_idx], pad_idx=utt_vocab.word2id['<PAD>'])
+            Xtarget = padding([XTarget[i] for i in batch_idx], pad_idx=utt_vocab.word2id['<PAD>'])
             if config['use_da']:
-                DAordered = [DAOrdered[i] for i in batch_idx]
-                DAmisordered = [DAMisOrdered[i] for i in batch_idx]
-                DAtarget = [DATarget[i] for i in batch_idx]
+                DAordered = torch.tensor([DAOrdered[i] for i in batch_idx]).cuda()
+                DAmisordered = torch.tensor([DAMisOrdered[i] for i in batch_idx]).cuda()
+                DAtarget = torch.tensor([DATarget[i] for i in batch_idx]).cuda()
             else:
                 DAordered, DAmisordered, DAtarget = None, None, None
-            y = [Y[i] for i in batch_idx]
+            y = torch.tensor([Y[i] for i in batch_idx]).cuda()
             loss, pred = predictor.forward(XOrdered=Xordered, XMisOrdered=Xmisordered, XTarget=Xtarget,
                                            DAOrdered=DAordered, DAMisOrdered=DAmisordered, DATarget=DAtarget,
                                            Y=y, step_size=step_size, criterion=criterion)
@@ -319,14 +318,13 @@ def make_triple(utterance_pairs, utt_vocab, da_pairs=None):
         DAtarget.append(da_target)
         Y.append(label)
     # padding
-    Xordered = padding(Xordered, utt_vocab.word2id['<PAD>'])
-    Xmisordered = padding(Xmisordered, utt_vocab.word2id['<PAD>'])
-    Xtarget = padding(Xtarget, utt_vocab.word2id['<PAD>'])
-    if not da_pairs is None:
-        da_ordered = torch.tensor(DAordered).cuda()
-        da_misordered = torch.tensor(DAmisordered).cuda()
-        da_target = torch.tensor(DAtarget).cuda()
-    Y = torch.tensor(Y).cuda()
+    # Xordered = padding(Xordered, utt_vocab.word2id['<PAD>'])
+    # Xmisordered = padding(Xmisordered, utt_vocab.word2id['<PAD>'])
+    # Xtarget = padding(Xtarget, utt_vocab.word2id['<PAD>'])
+    # if not da_pairs is None:
+    #     da_ordered = torch.tensor(DAordered).cuda()
+    #     da_misordered = torch.tensor(DAmisordered).cuda()
+    #     da_target = torch.tensor(DAtarget).cuda()
     return (Xordered, Xmisordered, Xtarget), (da_ordered, da_misordered, da_target), Y
 
 

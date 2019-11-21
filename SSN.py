@@ -120,7 +120,7 @@ def train(experiment):
     for e in range(config['EPOCH']):
         tmp_time = time.time()
         print('Epoch {} start'.format(e+1))
-        indexes = [i for i in range(len(XU_train))]
+        indexes = [i for i in range(len(XOrdered))]
         random.shuffle(indexes)
         k = 0
         predictor.train()

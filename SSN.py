@@ -8,6 +8,8 @@ from utils import *
 import time, random
 from sklearn.metrics import accuracy_score, f1_score
 import numpy as np
+from scipy import stats
+
 
 class OrderPredictor(nn.Module):
     def __init__(self, utterance_pair_encoder, da_pair_encoder,
@@ -31,7 +33,7 @@ class OrderPredictor(nn.Module):
         :return: loss, predicted probability
         """
         # Encoding
-        utterance_pair_hidden = self.utterance_pair_encoder.initHidden(step_size, self.device)
+        utterance_pair_hidden = self.utterance_pair_encoder.initHidden(step_size)
         for idx in range(len(XOrdered)):
             o_output, _ = self.utterance_pair_encoder(X=XOrdered[idx], hidden=utterance_pair_hidden)
             XOrdered[idx] = o_output
@@ -55,8 +57,8 @@ class OrderPredictor(nn.Module):
 
         pred = self.order_reasoning_layer(XOrdered=XOrdered, XMisOrdered=XMisOrdered, XTarget=XTarget,
                                           DAOrdered=da_o_output, DAMisOrdered=da_m_output, DATarget=da_t_output,
-                                          Y=Y, hidden=self.order_reasoning_layer.initHidden(step_size, self.device),
-                                          da_hidden=self.order_reasoning_layer.initDAHidden(step_size, self.device))
+                                          Y=Y, hidden=self.order_reasoning_layer.initHidden(step_size),
+                                          da_hidden=self.order_reasoning_layer.initDAHidden(step_size),)
         Y = Y.squeeze(1)
         loss = criterion(pred, Y)
         if self.training:
@@ -66,12 +68,12 @@ class OrderPredictor(nn.Module):
 def train(experiment):
     config = initialize_env(experiment)
     XD_train, YD_train, XU_train, YU_train = create_traindata(config=config, prefix='train')
-    XD_valid, YD_valid, XU_valid, YU_valid = create_traindata(config=config, prefix='dev')
+    XD_valid, YD_valid, XU_valid, YU_valid = create_traindata(config=config, prefix='valid')
     if os.path.exists(os.path.join(config['log_root'], 'da_vocab.dict')):
         da_vocab = da_Vocab(config, create_vocab=False)
         utt_vocab = utt_Vocab(config, create_vocab=False)
     else:
-        da_vocab = da_Vocab(config, XD_train + XD_valid, YD_train, YD_valid)
+        da_vocab = da_Vocab(config, XD_train + XD_valid, YD_train + YD_valid)
         utt_vocab = utt_Vocab(config, XU_train + XU_valid, YU_train + YU_valid)
         da_vocab.save()
         utt_vocab.save()
@@ -99,7 +101,7 @@ def train(experiment):
 
 
     predictor = OrderPredictor(utterance_pair_encoder=utterance_pair_encoder, order_reasoning_layer=order_reasoning_layer,
-                               da_pair_encoder=da_pair_encoder, config=config, device=device).cuda()
+                               da_pair_encoder=da_pair_encoder, config=config).cuda()
     criterion = nn.CrossEntropyLoss()
     print('--- Start Training ---')
     start = time.time()
@@ -236,7 +238,7 @@ def evaluate(experiment):
     order_reasoning_layer.load_state_dict(torch.load(os.path.join(config['log_dir'], 'ord_rsn_statevalidbest.model')))
 
     predictor = OrderPredictor(utterance_pair_encoder=utterance_pair_encoder, order_reasoning_layer=order_reasoning_layer,
-                               da_pair_encoder=da_pair_encoder, config=config, device=device).cuda()
+                               da_pair_encoder=da_pair_encoder, config=config).cuda()
     criterion = nn.CrossEntropyLoss()
     predictor.eval()
     k = 0
@@ -262,7 +264,16 @@ def evaluate(experiment):
             y_trues.extend(Y.data.tolist())
             k += step_size
         acc.append(accuracy_score(y_pred=y_preds, y_true=y_trues))
-    print('Avg. of Accuracy: {}'.format(np.mean(acc)))
+    acc = np.array(acc)
+    # t_dist = stats.t(loc=acc.mean(), scale=np.sqrt(acc.var()/len(acc)), df=len(acc)-1)
+    # bottom, up = t_dist.interval(alpha=0.95)
+    print('Avg. of Accuracy: {} +- {}'.format(acc.mean(), conf_interval(acc)))
+
+def conf_interval(X):
+    t = 2.1318
+    loc = X.mean()
+    scale = np.sqrt(X.var()/5)
+    return t * scale
 
 def make_triple(utterance_pairs, utt_vocab, da_pairs=None):
     Xordered = []
@@ -298,9 +309,9 @@ def make_triple(utterance_pairs, utt_vocab, da_pairs=None):
 
 
 def sample_triple(pairs, da_pairs):
-    # sampled_idx = random.sample([i for i in range(len(pairs)-1)], 3)
-    # i, j, k = sorted(sampled_idx)
-    i, j, k = -4, -3, -2
+    sampled_idx = random.sample([i for i in range(len(pairs)-1)], 3)
+    i, j, k = sorted(sampled_idx)
+    # i, j, k = -4, -3, -2
     ordered = [pairs[i], pairs[j], pairs[k]]
     misordered = [pairs[i], pairs[k], pairs[j]]
     if da_pairs is None:

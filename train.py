@@ -96,11 +96,9 @@ def train(experiment, fine_tuning=False):
 
     if fine_tuning:
         print('fine tuning')
-        utt_encoder.load_state_dict(
-            torch.load(os.path.join(config['log_root'], pretrain_model, 'utt_enc_state{}.model'.format(args.epoch))))
-        utt_decoder.load_state_dict(
-            torch.load(os.path.join(config['log_root'], pretrain_model, 'utt_dec_state{}.model'.format(args.epoch))))
-        utt_context.load_state_dict(torch.load(os.path.join(config['log_root'], pretrain_model, 'utt_context_state{}.model'.format(args.epoch))))
+        utt_encoder.load_state_dict(torch.load(os.path.join(config['log_root'], pretrain_model, 'utt_enc_state{}.model'.format(args.epoch))), strict=False)
+        utt_decoder.load_state_dict(torch.load(os.path.join(config['log_root'], pretrain_model, 'utt_dec_state{}.model'.format(args.epoch))), strict=False)
+        utt_context.load_state_dict(torch.load(os.path.join(config['log_root'], pretrain_model, 'utt_context_state{}.model'.format(args.epoch))), strict=False)
 
     if 'HRED' in args.expr:
         model = HRED(utt_vocab=utt_vocab,

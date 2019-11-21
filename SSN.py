@@ -108,11 +108,18 @@ def train(experiment):
     _valid_loss = None
     _train_loss = None
     early_stop = 0
+    utterance_pairs = [[XU + [utt_vocab.word2id['<SEP>']] + YU for XU, YU in zip(XU_train[conv_idx], YU_train[conv_idx])] for conv_idx in range(len(XU_train))]
+    utterance_pairs = [[batch[pi] for pi in range(0, len(batch), 2)] for batch in utterance_pairs]
+    if config['use_da']:
+        da_pairs = [[[XD, YD] for XD, YD in zip(XD_train[conv_idx], YD_train[conv_idx])] for conv_idx in range(len(XD_train))]
+        da_pairs = [[batch[pi] for pi in range(0, len(batch), 2)] for batch in da_pairs]
+    else:
+        da_pairs = None
+    (XOrdered, XMisOrdered, XTarget), (DAOrdered, DAMisOrdered, DATarget), Y = make_triple(utterance_pairs, utt_vocab, da_pairs)
 
     for e in range(config['EPOCH']):
         tmp_time = time.time()
         print('Epoch {} start'.format(e+1))
-
         indexes = [i for i in range(len(XU_train))]
         random.shuffle(indexes)
         k = 0
@@ -126,16 +133,26 @@ def train(experiment):
                 da_pair_encoder_opt.zero_grad()
             print('\rTRAINING|\t{} / {}'.format(k + step_size, len(indexes)), end='')
 
-            utterance_pairs = [[XU + [utt_vocab.word2id['<SEP>']] + YU for XU, YU in zip(XU_train[seq_idx], YU_train[seq_idx])] for seq_idx in batch_idx]
-            if config['use_da']:
-                da_pairs = [[[XD, YD] for XD, YD in zip(XD_train[seq_idx], YD_train[seq_idx])] for seq_idx in batch_idx]
-            else:
-                da_pairs = None
+            # utterance_pairs = [[XU + [utt_vocab.word2id['<SEP>']] + YU for XU, YU in zip(XU_train[seq_idx], YU_train[seq_idx])] for seq_idx in batch_idx]
+            # utterance_pairs = [[batch[pi] for pi in range(0, len(batch), 2)] for batch in utterance_pairs]
+            # if config['use_da']:
+            #     da_pairs = [[[XD, YD] for XD, YD in zip(XD_train[seq_idx], YD_train[seq_idx])] for seq_idx in batch_idx]
+            #     da_pairs = [[batch[pi] for pi in range(0, len(batch), 2)] for batch in da_pairs]
+            # else:
+            #     da_pairs = None
+            #     (Xordered, Xmisordered, Xtarget), (DAordered, DAmisordered, DAtarget), y = make_triple(utterance_pairs, utt_vocab, da_pairs)
+
             # utterance_pairs: (batch_size, conv_len, seq_len)
-            (Xordered, Xmisordered, Xtarget), (DAordered, DAmisordered, DAtarget), Y = make_triple(utterance_pairs, utt_vocab, da_pairs)
+            Xordered = [XOrdered[i] for i in batch_idx]
+            Xmisordered = [XMisOrdered[i] for i in batch_idx]
+            Xtarget = [XTarget[i] for i in batch_idx]
+            DAordered = [DAOrdered[i] for i in batch_idx]
+            DAmisordered = [DAMisOrdered[i] for i in batch_idx]
+            DAtarget = [DATarget[i] for i in batch_idx]
+            y = [Y[i] for i in batch_idx]
             loss, pred = predictor.forward(XOrdered=Xordered, XMisOrdered=Xmisordered, XTarget=Xtarget,
                                            DAOrdered=DAordered, DAMisOrdered=DAmisordered, DATarget=DAtarget,
-                                           Y=Y, step_size=step_size, criterion=criterion)
+                                           Y=y, step_size=step_size, criterion=criterion)
             print_total_loss += loss
             utterance_pair_encoder_opt.step()
             order_reasoning_layer_opt.step()
@@ -269,11 +286,13 @@ def evaluate(experiment):
     # bottom, up = t_dist.interval(alpha=0.95)
     print('Avg. of Accuracy: {} +- {}'.format(acc.mean(), conf_interval(acc)))
 
+
 def conf_interval(X):
     t = 2.1318
     loc = X.mean()
     scale = np.sqrt(X.var()/5)
     return t * scale
+
 
 def make_triple(utterance_pairs, utt_vocab, da_pairs=None):
     Xordered = []

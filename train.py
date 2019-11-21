@@ -90,7 +90,6 @@ def train(experiment, fine_tuning=False):
     # requires_grad が True のパラメータのみをオプティマイザにのせる
     utt_encoder_opt = optim.Adam(list(filter(lambda x: x.requires_grad, utt_encoder.parameters())), lr=lr)
     utt_decoder_opt = optim.Adam(utt_decoder.parameters(), lr=lr)
-
     utt_context = UtteranceContextEncoder(utterance_hidden_size=config['UTT_CONTEXT']).cuda()
     utt_context_opt = optim.Adam(utt_context.parameters(), lr=lr)
 
@@ -110,17 +109,13 @@ def train(experiment, fine_tuning=False):
                 utt_context=utt_context,
                 utt_decoder=utt_decoder, config=config).cuda()
     print('Success construct model...')
-
-
     criterion = nn.CrossEntropyLoss(ignore_index=utt_vocab.word2id['<PAD>'], reduce=False)
-
     print('---start training---')
 
     start = time.time()
     _valid_loss = None
     _train_loss = None
     early_stop = 0
-
     for e in range(config['EPOCH']):
         tmp_time = time.time()
         print('Epoch {} start'.format(e+1))

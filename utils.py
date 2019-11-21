@@ -157,10 +157,12 @@ class MPMI:
 
 def create_traindata(config, prefix='train'):
     if config['lang'] == 'en':
-        file_pattern = re.compile(r'^sw_{}_([0-9]*?)\.jsonlines$'.format(prefix))
+        # file_pattern = re.compile(r'^sw_{}_([0-9]*?)\.jsonlines$'.format(prefix))
+        file_pattern = re.compile(r'^OpenSubtitles\_{}\_([0-9]*?)\.jsonlines$'.format(prefix))
     elif config['lang'] == 'ja':
         file_pattern = re.compile(r'^data([0-9]*?)\_{}\_([0-9]*?)\.jsonlines$'.format(prefix))
     files = [f for f in os.listdir(config['train_path']) if file_pattern.match(f)]
+    files = files[:len(files)//2]
     da_posts = []
     da_cmnts = []
     utt_posts = []

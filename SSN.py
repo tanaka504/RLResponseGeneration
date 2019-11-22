@@ -66,9 +66,11 @@ class OrderPredictor(nn.Module):
                                                            da_hidden=self.order_reasoning_layer.initDAHidden(step_size))
         if not da_o_output is None:
             da_output = torch.cat((da_o_output, da_m_output, da_t_output), dim=-1)
+            # da_output: (batch_size, da_hidden_size * 3)
         else:
             da_output = None
         output = torch.cat((XOrdered, XMisOrdered, XTarget), dim=-1)
+        # output: (batch_size, hidden_size * 6)
 
         pred = self.classifier(output, da_output)
         Y = Y.squeeze(1)
@@ -208,8 +210,8 @@ def train(experiment):
                 DAordered, DAmisordered, DAtarget = None, None, None
             y = torch.tensor([Y[i] for i in batch_idx]).cuda()
             if experiment == 'baseline':
-                loss , pred = predictor.baseline(XOrdered=XOrdered, XTarget=XTarget,
-                                                 DAOrdered=DAOrdered, DATarget=DATarget,
+                loss , pred = predictor.baseline(XOrdered=Xordered, XTarget=Xtarget,
+                                                 DAOrdered=DAordered, DATarget=DAtarget,
                                                  Y=y, step_size=step_size, criterion=criterion)
             else:
                 loss, pred = predictor.forward(XOrdered=Xordered, XMisOrdered=Xmisordered, XTarget=Xtarget,
@@ -289,6 +291,7 @@ def validation(XU_valid, YU_valid, XD_valid, YD_valid, model, utt_vocab, config)
         (Xordered, Xmisordered, Xtarget), (DAordered, DAmisordered, DAtarget), Y = make_triple(utterance_pairs, utt_vocab, da_pairs)
         Xordered = padding(Xordered, pad_idx=utt_vocab.word2id['<PAD>'])
         Xmisordered = padding(Xmisordered, pad_idx=utt_vocab.word2id['<PAD>'])
+
         Xtarget = padding(Xtarget, pad_idx=utt_vocab.word2id['<PAD>'])
         if config['use_da']:
             DAordered = torch.tensor(DAordered).cuda()
@@ -410,13 +413,13 @@ def baseline_triples(utterance_pairs, da_pairs=None):
     for bidx in range(len(utterance_pairs)):
         if not da_pairs is None:
             da_seq = da_pairs[bidx]
+            DAordered.append(da_seq[:-1])
         else:
             da_seq = None
         (ordered, misordered, target), (da_ordered, da_misordered, da_target), label = sample_triple(utterance_pairs[bidx], da_seq)
         Xordered.append(utterance_pairs[bidx][:-1])
         Xmisordered.append(misordered)
         Xtarget.append(target)
-        DAordered.append(da_seq[:-1])
         DAmisordered.append(da_misordered)
         DAtarget.append(da_target)
         Y.append(label)

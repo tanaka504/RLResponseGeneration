@@ -13,11 +13,12 @@ from scipy import stats
 
 class OrderPredictor(nn.Module):
     def __init__(self, utterance_pair_encoder, da_pair_encoder,
-                 order_reasoning_layer, config):
+                 order_reasoning_layer, classifier, config):
         super(OrderPredictor, self).__init__()
         self.utterance_pair_encoder = utterance_pair_encoder
         self.da_pair_encoder = da_pair_encoder
         self.order_reasoning_layer = order_reasoning_layer
+        self.classifier = classifier
         self.config = config
 
     def forward(self, XOrdered, XMisOrdered, XTarget,
@@ -54,16 +55,66 @@ class OrderPredictor(nn.Module):
         else:
             da_o_output, da_m_output, da_t_output = None, None, None
         # DATensor: (batch_size, window_size, hidden_size)
+        XOrdered, da_o_output = self.order_reasoning_layer(X=XOrdered, DA=da_o_output,
+                                                           hidden=self.order_reasoning_layer.initHidden(step_size),
+                                                           da_hidden=self.order_reasoning_layer.initDAHidden(step_size))
+        XMisOrdered, da_m_output = self.order_reasoning_layer(X=XMisOrdered, DA=da_m_output,
+                                                           hidden=self.order_reasoning_layer.initHidden(step_size),
+                                                           da_hidden=self.order_reasoning_layer.initDAHidden(step_size))
+        XTarget, da_t_output = self.order_reasoning_layer(X=XTarget, DA=da_t_output,
+                                                           hidden=self.order_reasoning_layer.initHidden(step_size),
+                                                           da_hidden=self.order_reasoning_layer.initDAHidden(step_size))
+        if not da_o_output is None:
+            da_output = torch.cat((da_o_output, da_m_output, da_t_output), dim=-1)
+        else:
+            da_output = None
+        output = torch.cat((XOrdered, XMisOrdered, XTarget), dim=-1)
 
-        pred = self.order_reasoning_layer(XOrdered=XOrdered, XMisOrdered=XMisOrdered, XTarget=XTarget,
-                                          DAOrdered=da_o_output, DAMisOrdered=da_m_output, DATarget=da_t_output,
-                                          Y=Y, hidden=self.order_reasoning_layer.initHidden(step_size),
-                                          da_hidden=self.order_reasoning_layer.initDAHidden(step_size),)
+        pred = self.classifier(output, da_output)
         Y = Y.squeeze(1)
         loss = criterion(pred, Y)
         if self.training:
             loss.backward()
         return loss.item(), pred.data.tolist()
+
+    def baseline(self, XOrdered, XTarget,
+                DAOrdered, DATarget, Y, step_size, criterion):
+        utterance_pair_hidden = self.utterance_pair_encoder.initHidden(step_size)
+        for idx in range(len(XOrdered)):
+            o_output, _ = self.utterance_pair_encoder(X=XOrdered[idx], hidden=utterance_pair_hidden)
+            XOrdered[idx] = o_output
+        for idx in range(len(XTarget)):
+            t_output, t_hidden = self.utterance_pair_encoder(X=XTarget[idx], hidden=utterance_pair_hidden)
+            XTarget[idx] = t_output
+        XOrdered = torch.stack(XOrdered).squeeze(2)
+        XTarget = torch.stack(XTarget).squeeze(2)
+        # Tensor:(window_size, batch_size, hidden_size)
+
+        if self.config['use_da']:
+            da_o_output = self.da_pair_encoder(DAOrdered).permute(1, 0, 2)
+            da_t_output = self.da_pair_encoder(DATarget).permute(1, 0, 2)
+        else:
+            da_o_output, da_m_output, da_t_output = None, None, None
+        # DATensor: (batch_size, window_size, hidden_size)
+        XOrdered, da_o_output = self.order_reasoning_layer.baseline(X=XOrdered, DA=da_o_output,
+                                                           hidden=self.order_reasoning_layer.initHidden(step_size),
+                                                           da_hidden=self.order_reasoning_layer.initDAHidden(step_size))
+        XTarget, da_t_output = self.order_reasoning_layer.forward(X=XTarget, DA=da_t_output,
+                                                          hidden=self.order_reasoning_layer.initHidden(step_size),
+                                                          da_hidden=self.order_reasoning_layer.initDAHidden(step_size))
+        if not da_o_output is None:
+            da_output = torch.cat((da_o_output, da_t_output), dim=-1)
+        else:
+            da_output = None
+        output = torch.cat((XOrdered, XTarget), dim=-1)
+
+        pred = self.classifier(output, da_output)
+        Y = Y.squeeze(1)
+        loss = criterion(pred, Y)
+        if self.training:
+            loss.backward()
+        return loss.item(), pred.data.tolist()
+
 
 def train(experiment):
     config = initialize_env(experiment)
@@ -95,13 +146,14 @@ def train(experiment):
     else:
         da_pair_encoder = None
     order_reasoning_layer = OrderReasoningLayer(encoder_hidden_size=config['SSN_ENC_HIDDEN'], hidden_size=config['SSN_REASONING_HIDDEN'],
-                                                middle_layer_size=config['SSN_MIDDLE_LAYER'], da_hidden_size=config['SSN_DA_HIDDEN'], config=config).cuda()
+                                                da_hidden_size=config['SSN_DA_HIDDEN']).cuda()
+    classifier = Classifier(hidden_size=config['SSN_REASONING_HIDDEN'], middle_layer_size=config['SSN_MIDDLE_LAYER'], da_hidden_size=config['SSN_DA_HIDDEN'])
     utterance_pair_encoder_opt = optim.Adam(utterance_pair_encoder.parameters(), lr=lr)
     order_reasoning_layer_opt = optim.Adam(order_reasoning_layer.parameters(), lr=lr)
-
+    classifier_opt = optim.Adam(classifier.parameters(), lr=lr)
 
     predictor = OrderPredictor(utterance_pair_encoder=utterance_pair_encoder, order_reasoning_layer=order_reasoning_layer,
-                               da_pair_encoder=da_pair_encoder, config=config).cuda()
+                               da_pair_encoder=da_pair_encoder, classifier=classifier, config=config).cuda()
     criterion = nn.CrossEntropyLoss()
     print('--- Start Training ---')
     start = time.time()
@@ -115,7 +167,10 @@ def train(experiment):
         da_pairs = [[batch[pi] for pi in range(0, len(batch), 2)] for batch in da_pairs]
     else:
         da_pairs = None
-    (XOrdered, XMisOrdered, XTarget), (DAOrdered, DAMisOrdered, DATarget), Y = make_triple(utterance_pairs=utterance_pairs, utt_vocab=utt_vocab, da_pairs=da_pairs)
+    if experiment == 'baseline':
+        (XOrdered, XMisOrdered, XTarget), (DAOrdered, DAMisOrdered, DATarget), Y = baseline_triples(utterance_pairs, da_pairs)
+    else:
+        (XOrdered, XMisOrdered, XTarget), (DAOrdered, DAMisOrdered, DATarget), Y = make_triple(utterance_pairs=utterance_pairs, da_pairs=da_pairs)
     for e in range(config['EPOCH']):
         tmp_time = time.time()
         print('Epoch {} start'.format(e+1))
@@ -152,14 +207,21 @@ def train(experiment):
             else:
                 DAordered, DAmisordered, DAtarget = None, None, None
             y = torch.tensor([Y[i] for i in batch_idx]).cuda()
-            loss, pred = predictor.forward(XOrdered=Xordered, XMisOrdered=Xmisordered, XTarget=Xtarget,
-                                           DAOrdered=DAordered, DAMisOrdered=DAmisordered, DATarget=DAtarget,
-                                           Y=y, step_size=step_size, criterion=criterion)
+            if experiment == 'baseline':
+                loss , pred = predictor.baseline(XOrdered=XOrdered, XTarget=XTarget,
+                                                 DAOrdered=DAOrdered, DATarget=DATarget,
+                                                 Y=y, step_size=step_size, criterion=criterion)
+            else:
+                loss, pred = predictor.forward(XOrdered=Xordered, XMisOrdered=Xmisordered, XTarget=Xtarget,
+                                               DAOrdered=DAordered, DAMisOrdered=DAmisordered, DATarget=DAtarget,
+                                               Y=y, step_size=step_size, criterion=criterion)
+
             print_total_loss += loss
             utterance_pair_encoder_opt.step()
             order_reasoning_layer_opt.step()
             if config['use_da']:
                 da_pair_encoder_opt.step()
+            classifier_opt.step()
             k += step_size
         print()
         valid_loss = validation(XU_valid=XU_valid, YU_valid=YU_valid, XD_valid=XD_valid, YD_valid=YD_valid,
@@ -306,7 +368,7 @@ def conf_interval(X):
     return t * scale
 
 
-def make_triple(utterance_pairs, utt_vocab, da_pairs=None):
+def make_triple(utterance_pairs, da_pairs=None):
     Xordered = []
     Xmisordered = []
     Xtarget = []
@@ -335,8 +397,30 @@ def make_triple(utterance_pairs, utt_vocab, da_pairs=None):
     #     da_ordered = torch.tensor(DAordered).cuda()
     #     da_misordered = torch.tensor(DAmisordered).cuda()
     #     da_target = torch.tensor(DAtarget).cuda()
-    return (Xordered, Xmisordered, Xtarget), (da_ordered, da_misordered, da_target), Y
+    return (Xordered, Xmisordered, Xtarget), (DAordered, DAmisordered, DAtarget), Y
 
+def baseline_triples(utterance_pairs, da_pairs=None):
+    Xordered = []
+    Xmisordered = []
+    Xtarget = []
+    DAordered = []
+    DAmisordered = []
+    DAtarget = []
+    Y = []
+    for bidx in range(len(utterance_pairs)):
+        if not da_pairs is None:
+            da_seq = da_pairs[bidx]
+        else:
+            da_seq = None
+        (ordered, misordered, target), (da_ordered, da_misordered, da_target), label = sample_triple(utterance_pairs[bidx], da_seq)
+        Xordered.append(utterance_pairs[bidx][:-1])
+        Xmisordered.append(misordered)
+        Xtarget.append(target)
+        DAordered.append(da_seq[:-1])
+        DAmisordered.append(da_misordered)
+        DAtarget.append(da_target)
+        Y.append(label)
+    return (Xordered, Xmisordered, Xtarget), (DAordered, DAmisordered, DAtarget), Y
 
 def sample_triple(pairs, da_pairs):
     sampled_idx = random.sample([i for i in range(len(pairs)-1)], 3)
@@ -351,18 +435,18 @@ def sample_triple(pairs, da_pairs):
         da_ordered = [da_pairs[i], da_pairs[j], da_pairs[k]]
         da_misordered = [da_pairs[i], da_pairs[k], da_pairs[j]]
     if random.random() > 0.5:
-        target = [pairs[i], pairs[j], pairs[-1]]
+        target = [pairs[j], pairs[k], pairs[-1]]
         if da_pairs is None:
             da_target = None
         else:
-            da_target = [da_pairs[i], da_pairs[j], da_pairs[-1]]
+            da_target = [da_pairs[j], da_pairs[k], da_pairs[-1]]
         label = [0]
     else:
-        target = [pairs[i], pairs[-1], pairs[j]]
+        target = [pairs[j], pairs[-1], pairs[k]]
         if da_pairs is None:
             da_target = None
         else:
-            da_target = [da_pairs[i], da_pairs[-1], da_pairs[j]]
+            da_target = [da_pairs[j], da_pairs[-1], da_pairs[k]]
         label = [1]
     return (ordered, misordered, target), (da_ordered, da_misordered, da_target), label
 

@@ -108,9 +108,9 @@ class OrderPredictor(nn.Module):
             da_output = torch.cat((da_o_output, da_t_output), dim=-1)
         else:
             da_output = None
-        output = torch.cat((XOrdered, XTarget), dim=-1)
+        output = torch.cat((XOrdered[-1], XTarget), dim=-1)
 
-        pred = self.classifier(output, da_output)
+        pred = self.classifier.baseline(output, da_output)
         Y = Y.squeeze(1)
         loss = criterion(pred, Y)
         if self.training:
@@ -182,12 +182,12 @@ def train(experiment):
         predictor.train()
         while k < len(indexes):
             step_size = min(batch_size, len(indexes)-k)
+            print('\rTRAINING|\t{} / {}'.format(k + step_size, len(indexes)), end='')
             batch_idx = indexes[k: k+step_size]
             utterance_pair_encoder_opt.zero_grad()
             order_reasoning_layer_opt.zero_grad()
             if config['use_da']:
                 da_pair_encoder_opt.zero_grad()
-            print('\rTRAINING|\t{} / {}'.format(k + step_size, len(indexes)), end='')
 
             # utterance_pairs = [[XU + [utt_vocab.word2id['<SEP>']] + YU for XU, YU in zip(XU_train[seq_idx], YU_train[seq_idx])] for seq_idx in batch_idx]
             # utterance_pairs = [[batch[pi] for pi in range(0, len(batch), 2)] for batch in utterance_pairs]
@@ -226,12 +226,13 @@ def train(experiment):
             classifier_opt.step()
             k += step_size
         print()
-        valid_loss = validation(XU_valid=XU_valid, YU_valid=YU_valid, XD_valid=XD_valid, YD_valid=YD_valid,
+        valid_loss = validation(experiment=experiment, XU_valid=XU_valid, YU_valid=YU_valid, XD_valid=XD_valid, YD_valid=YD_valid,
                                 model=predictor, utt_vocab=utt_vocab, config=config)
 
         def save_model(filename):
             torch.save(utterance_pair_encoder.state_dict(), os.path.join(config['log_dir'], 'utt_pair_enc_state{}.model'.format(filename)))
             torch.save(order_reasoning_layer.state_dict(), os.path.join(config['log_dir'], 'ord_rsn_state{}.model'.format(filename)))
+            torch.save(classifier.state_dict(), os.path.join(config['log_dir'], 'cls_state{}.model'.format(filename)))
             if config['use_da']:
                 torch.save(da_pair_encoder.state_dict(), os.path.join(config['log_dir'], 'da_pair_enc_state{}.model'.format(filename)))
 
@@ -271,7 +272,7 @@ def train(experiment):
     print('Finish training | exec time: %.4f [sec]' % (time.time() - start))
 
 
-def validation(XU_valid, YU_valid, XD_valid, YD_valid, model, utt_vocab, config):
+def validation(experiment, XU_valid, YU_valid, XD_valid, YD_valid, model, utt_vocab, config):
     model.eval()
     indexes = [i for i in range(len(XU_valid))]
     random.shuffle(indexes)
@@ -288,10 +289,12 @@ def validation(XU_valid, YU_valid, XD_valid, YD_valid, model, utt_vocab, config)
             da_pairs = [[[XD, YD] for XD, YD in zip(XD_valid[seq_idx], YD_valid[seq_idx])] for seq_idx in batch_idx]
         else:
             da_pairs = None
-        (Xordered, Xmisordered, Xtarget), (DAordered, DAmisordered, DAtarget), Y = make_triple(utterance_pairs, utt_vocab, da_pairs)
+        if experiment == 'baseline':
+            (Xordered, Xmisordered, Xtarget), (DAordered, DAmisordered, DAtarget), Y = baseline_triples(utterance_pairs, da_pairs)
+        else:
+            (Xordered, Xmisordered, Xtarget), (DAordered, DAmisordered, DAtarget), Y = make_triple(utterance_pairs, da_pairs)
         Xordered = padding(Xordered, pad_idx=utt_vocab.word2id['<PAD>'])
         Xmisordered = padding(Xmisordered, pad_idx=utt_vocab.word2id['<PAD>'])
-
         Xtarget = padding(Xtarget, pad_idx=utt_vocab.word2id['<PAD>'])
         if config['use_da']:
             DAordered = torch.tensor(DAordered).cuda()
@@ -300,9 +303,14 @@ def validation(XU_valid, YU_valid, XD_valid, YD_valid, model, utt_vocab, config)
         else:
             DAordered, DAmisordered, DAtarget = None, None, None
         Y = torch.tensor(Y).cuda()
-        loss, preds = model.forward(XOrdered=Xordered, XMisOrdered=Xmisordered, XTarget=Xtarget,
-                                    DAOrdered=DAordered, DAMisOrdered=DAmisordered, DATarget=DAtarget,
-                                    Y=Y, step_size=step_size, criterion=criterion)
+        if experiment == 'baseline':
+            loss, preds = model.baseline(XOrdered=Xordered, XTarget=Xtarget,
+                                         DAOrdered=DAordered, DATarget=DAtarget,
+                                         Y=Y, step_size=step_size, criterion=criterion)
+        else:
+            loss, preds = model.forward(XOrdered=Xordered, XMisOrdered=Xmisordered, XTarget=Xtarget,
+                                        DAOrdered=DAordered, DAMisOrdered=DAmisordered, DATarget=DAtarget,
+                                        Y=Y, step_size=step_size, criterion=criterion)
         result = [0 if line[0] > line[1] else 1 for line in preds]
         valid_acc.append(accuracy_score(y_true=Y.data.tolist(), y_pred=result))
         k += step_size
@@ -328,11 +336,13 @@ def evaluate(experiment):
     else:
         da_pair_encoder = None
     order_reasoning_layer = OrderReasoningLayer(encoder_hidden_size=config['SSN_ENC_HIDDEN'], hidden_size=config['SSN_REASONING_HIDDEN'],
-                                                middle_layer_size=config['SSN_MIDDLE_LAYER'], da_hidden_size=config['SSN_DA_HIDDEN'], config=config).cuda()
+                                                da_hidden_size=config['SSN_DA_HIDDEN']).cuda()
+    classifier = Classifier(hidden_size=config['SSN_REASONING_HIDDEN'], middle_layer_size=config['SSN_MIDDLE_LAYER'], da_hidden_size=config['SSN_DA_HIDDEN'])
     order_reasoning_layer.load_state_dict(torch.load(os.path.join(config['log_dir'], 'ord_rsn_statevalidbest.model')))
-
+    classifier.load_state_dict(torch.load(os.path.join(config['log_dir'], 'cls_statevalidbest.model')))
     predictor = OrderPredictor(utterance_pair_encoder=utterance_pair_encoder, order_reasoning_layer=order_reasoning_layer,
                                da_pair_encoder=da_pair_encoder, config=config).cuda()
+
     criterion = nn.CrossEntropyLoss()
     predictor.eval()
     k = 0
@@ -349,10 +359,17 @@ def evaluate(experiment):
                 da_pairs = [[[XD, YD] for XD, YD in zip(XD_test[seq_idx], YD_test[seq_idx])] for seq_idx in batch_idx]
             else:
                 da_pairs = None
-            (Xordered, Xmisordered, Xtarget), (DAordered, DAmisordered, DAtarget), Y = make_triple(utterance_pairs, utt_vocab, da_pairs)
-            loss, preds = predictor.forward(XOrdered=Xordered, XMisOrdered=Xmisordered, XTarget=Xtarget,
-                                        DAOrdered=DAordered, DAMisOrdered=DAmisordered, DATarget=DAtarget,
-                                        Y=Y, step_size=step_size, criterion=criterion)
+            if experiment == 'baseline':
+                (Xordered, Xmisordered, Xtarget), (DAordered, DAmisordered, DAtarget), Y = baseline_triples(utterance_pairs, da_pairs)
+                loss, preds = predictor.baseline(XOrdered=Xordered, XTarget=Xtarget,
+                                             DAOrdered=DAordered, DATarget=DAtarget,
+                                             Y=Y, step_size=step_size, criterion=criterion)
+
+            else:
+                (Xordered, Xmisordered, Xtarget), (DAordered, DAmisordered, DAtarget), Y = make_triple(utterance_pairs, utt_vocab, da_pairs)
+                loss, preds = predictor.forward(XOrdered=Xordered, XMisOrdered=Xmisordered, XTarget=Xtarget,
+                                            DAOrdered=DAordered, DAMisOrdered=DAmisordered, DATarget=DAtarget,
+                                            Y=Y, step_size=step_size, criterion=criterion)
             result = [0 if line[0] > line[1] else 1 for line in preds]
             y_preds.extend(result)
             y_trues.extend(Y.data.tolist())

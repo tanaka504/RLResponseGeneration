@@ -1,4 +1,4 @@
-FROM nvidia/cuda:10.0-cudnn7-runtime
+FROM nvidia/cuda:10.1-cudnn7-devel-ubuntu18.04
 MAINTAINER tanaka504 <nishikigi.nlp@gmail.com>
 
 # apt-get
@@ -15,8 +15,8 @@ ENV PATH $PYENV_ROOT/bin:$PATH
 RUN echo 'eval "$(pyenv init -)"' >> ~/.bashrc && \
     eval "$(pyenv init -)"
 
-RUN pyenv install 3.7.5
-RUN pyenv global 3.7.5
+RUN pyenv install 3.6.9
+RUN pyenv global 3.6.9
 
 # install python3 packages
 RUN pip3 install --upgrade pip
@@ -35,5 +35,5 @@ RUN git clone --depth 1 https://github.com/neologd/mecab-ipadic-neologd.git /usr
 RUN mecab -d /usr/local/lib/mecab/dic/mecab-ipadic-neologd/
 
 WORKDIR /home/
-RUN git clone https://github.com/tanaka504/RLResponseGeneration.git
+RUN git clone https://github.com/tanaka504/RLResponseGeneration.git RL
 CMD ["/bin/bash"]

@@ -6,7 +6,7 @@ from utils import *
 from nn_blocks import *
 import argparse
 import random
-
+from torchviz import make_dot
 
 def parse():
     parser = argparse.ArgumentParser()

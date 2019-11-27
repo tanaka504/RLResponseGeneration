@@ -49,6 +49,8 @@ def train(experiment):
     classifier = Classifier(encoder_hidden=768, middle_layer_size=config['NLI_MIDDLE_LAYER']).cuda()
     model = NLI(classifier=classifier, criterion=criterion, config=config).cuda()
     model_opt = optim.Adam(model.parameters(), lr=lr)
+    _valid_loss = None
+    early_stop = 0
     for e in range(config['EPOCH']):
         tmp_time = time.time()
         print('Epoch {} start.'.format(e+1))
@@ -68,8 +70,6 @@ def train(experiment):
             y = torch.tensor(y).cuda()
             loss, pred = model(X=x, Y=y)
             preds = torch.argmax(pred, dim=1).data.tolist()
-            print(accuracy_score(y_true=y.data.tolist(), y_pred=preds))
-            input()
             train_acc.append(accuracy_score(y_true=y.data.tolist(), y_pred=preds))
             model_opt.step()
             k += step_size
@@ -77,6 +77,16 @@ def train(experiment):
         valid_loss = validation(model, X_valid, Y_valid, config)
         def save(fname):
             torch.save(model.state_dict(), os.path.join(config['log_dir'], 'state{}.model'.format(fname)))
+        if _valid_loss is None:
+            save('validbest')
+            _valid_loss = valid_loss
+        else:
+            if _valid_loss > valid_loss:
+                save('validbest')
+                early_stop = 0
+            else:
+                early_stop += 1
+                if early_stop >= config['EARLY_STOP']: break
 
         if (e + 1) % config['LOGGING_FREQ'] == 0:
             print_loss_avg = print_total_loss / config['LOGGING_FREQ']

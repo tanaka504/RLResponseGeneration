@@ -45,8 +45,8 @@ def train(experiment):
     criterion = nn.CrossEntropyLoss()
     lr = config['lr']
     batch_size = config['BATCH_SIZE']
-    classifier = Classifier(encoder_hidden=768, middle_layer_size=config['NLI_MIDDLE_LAYER'])
-    model = NLI(classifier=classifier, criterion=criterion, config=config)
+    classifier = Classifier(encoder_hidden=768, middle_layer_size=config['NLI_MIDDLE_LAYER']).cuda()
+    model = NLI(classifier=classifier, criterion=criterion, config=config).cuda()
     model_opt = optim.Adam(model.parameters(), lr=lr)
     for e in range(config['EPOCH']):
         tmp_time = time.time()
@@ -63,7 +63,7 @@ def train(experiment):
             x = [X[i] for i in batch_idx]
             y = [Y[i] for i in batch_idx]
             x = string2tensor(model.tokenizer, list(x))
-            y = torch.tensor(y)
+            y = torch.tensor(y).cuda()
             loss, pred = model(X=x, Y=y)
             model_opt.step()
             k += step_size
@@ -112,7 +112,7 @@ def string2tensor(tokenizer, X):
         pad_len = max_seq_len - len(x_seq)
         X[bidx] = x_seq + [0 for _ in range(pad_len)]
         assert len(X[bidx]) == max_seq_len, '{}, {}'.format(len(X[bidx]), max_seq_len)
-    return torch.tensor(X)
+    return torch.tensor(X).cuda()
 
 if __name__ == '__main__':
     args = parse()

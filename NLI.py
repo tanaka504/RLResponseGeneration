@@ -5,6 +5,7 @@ from train import initialize_env, parse
 import time, random
 from transformers import *
 from utils import *
+from sklearn.metrics import accuracy_score
 
 class Classifier(nn.Module):
     def __init__(self, encoder_hidden,middle_layer_size):
@@ -54,6 +55,7 @@ def train(experiment):
         indexes = [i for i in range(len(X))]
         random.shuffle(indexes)
         k = 0
+        train_acc = []
         model.train()
         while k < len(indexes):
             step_size = min(batch_size, len(indexes)-k)
@@ -65,8 +67,10 @@ def train(experiment):
             x = string2tensor(model.tokenizer, list(x))
             y = torch.tensor(y).cuda()
             loss, pred = model(X=x, Y=y)
-            print(pred.size())
+            preds = torch.argmax(pred, dim=1).data.tolist()
+            print(accuracy_score(y_true=y.data.tolist(), y_pred=preds))
             input()
+            train_acc.append(accuracy_score(y_true=y.data.tolist(), y_pred=preds))
             model_opt.step()
             k += step_size
         print()
@@ -103,10 +107,12 @@ def validation(model, X, Y, config):
         x = string2tensor(model.tokenizer, x)
         y = torch.tensor(y).cuda()
         loss, pred = model(X=x, Y=y)
+        preds = torch.argmax(pred, dim=1).data.tolist()
+        val_acc.append(accuracy_score(y_true=y.data.tolist(), y_pred=preds))
         k += step_size
         total_loss += loss
+    print('Avg. acc.: ', np.mean(val_acc))
     return loss
-
 def evaluate(experiment):
     config = initialize_env(experiment)
     X, Y = NLILoader(config=config, prefix='test')

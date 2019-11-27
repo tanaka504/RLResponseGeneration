@@ -207,11 +207,6 @@ def train(experiment):
             print('\rTRAINING|\t{} / {}'.format(k + step_size, len(indexes)), end='')
             batch_idx = indexes[k: k+step_size]
             model_opt.zero_grad()
-            # utterance_pair_encoder_opt.zero_grad()
-            # order_reasoning_layer_opt.zero_grad()
-            # classifier_opt.zero_grad()
-            # if config['use_da']:
-            #     da_pair_encoder_opt.zero_grad()
 
             # utterance_pairs = [[XU + [utt_vocab.word2id['<SEP>']] + YU for XU, YU in zip(XU_train[seq_idx], YU_train[seq_idx])] for seq_idx in batch_idx]
             # utterance_pairs = [[batch[pi] for pi in range(0, len(batch), 2)] for batch in utterance_pairs]
@@ -221,7 +216,6 @@ def train(experiment):
             # else:
             #     da_pairs = None
             # (Xordered, Xmisordered, Xtarget), (DAordered, DAmisordered, DAtarget), y = make_triple(utterance_pairs, utt_vocab, da_pairs)
-
             # utterance_pairs: (batch_size, conv_len, seq_len)
             Xordered = padding([XOrdered[i] for i in batch_idx], pad_idx=utt_vocab.word2id['<PAD>'])
             Xmisordered = padding([XMisOrdered[i] for i in batch_idx], pad_idx=utt_vocab.word2id['<PAD>'])
@@ -244,11 +238,6 @@ def train(experiment):
 
             print_total_loss += loss
             model_opt.step()
-            # utterance_pair_encoder_opt.step()
-            # order_reasoning_layer_opt.step()
-            # if config['use_da']:
-            #     da_pair_encoder_opt.step()
-            # classifier_opt.step()
             k += step_size
             # image_g_params = list(predictor.named_parameters())
             # image_g_params += list(predictor.utterance_pair_encoder.named_parameters())  # エラー回避
@@ -310,14 +299,11 @@ def train(experiment):
 def validation(experiment, XU_valid, YU_valid, XD_valid, YD_valid, model, utt_vocab, config):
     model.eval()
     indexes = [i for i in range(len(XU_valid))]
-    # random.shuffle(indexes)
-    # criterion = nn.CrossEntropyLoss()
+    random.shuffle(indexes)
     criterion = nn.BCELoss()
     k = 0
     total_loss = 0
     valid_acc = []
-    # (XOrdered, XMisOrdered, XTarget), (DAOrdered, DAMisOrdered, DATarget), Y = tmp
-    # indexes = [i for i in range(len(XOrdered))]
     while k < len(indexes):
         step_size = min(config['BATCH_SIZE'], len(indexes)-k)
         # print('\rVALIDATION|\t{} / {} steps'.format(k + step_size, len(indexes)), end='')
@@ -341,24 +327,14 @@ def validation(experiment, XU_valid, YU_valid, XD_valid, YD_valid, model, utt_vo
         else:
             DAordered, DAmisordered, DAtarget = None, None, None
         y = torch.tensor(Y, dtype=torch.float).cuda()
-        # Xordered = padding([XOrdered[i] for i in batch_idx], pad_idx=utt_vocab.word2id['<PAD>'])
-        # Xmisordered = padding([XMisOrdered[i] for i in batch_idx], pad_idx=utt_vocab.word2id['<PAD>'])
-        # Xtarget = padding([XTarget[i] for i in batch_idx], pad_idx=utt_vocab.word2id['<PAD>'])
-        # if config['use_da']:
-        #     DAordered = torch.tensor([DAOrdered[i] for i in batch_idx]).cuda()
-        #     DAmisordered = torch.tensor([DAMisOrdered[i] for i in batch_idx]).cuda()
-        #     DAtarget = torch.tensor([DATarget[i] for i in batch_idx]).cuda()
-        # else:
-        #     DAordered, DAmisordered, DAtarget = None, None, None
-        # y = torch.tensor([Y[i] for i in batch_idx], dtype=torch.float).cuda()
         if experiment == 'baseline':
             loss, preds = model.baseline(XOrdered=Xordered, XTarget=Xtarget,
                                          DAOrdered=DAordered, DATarget=DAtarget,
-                                         Y=y, step_size=step_size, criterion=criterion)
+                                         Y=y, step_size=step_size*5, criterion=criterion)
         else:
             loss, preds = model.forward(XOrdered=Xordered, XMisOrdered=Xmisordered, XTarget=Xtarget,
                                         DAOrdered=DAordered, DAMisOrdered=DAmisordered, DATarget=DAtarget,
-                                        Y=y, step_size=step_size, criterion=criterion)
+                                        Y=y, step_size=step_size*5, criterion=criterion)
         result = [0 if line < 0.5 else 1 for line in preds]
         valid_acc.append(accuracy_score(y_true=y.data.tolist(), y_pred=result))
         k += step_size
@@ -463,14 +439,15 @@ def make_triple(utterance_pairs, da_pairs=None):
             da_seq = da_pairs[bidx]
         else:
             da_seq = None
-        (ordered, misordered, target), (da_ordered, da_misordered, da_target), label = sample_triple(utterance_pairs[bidx], da_seq)
-        Xordered.append(ordered)
-        Xmisordered.append(misordered)
-        Xtarget.append(target)
-        DAordered.append(da_ordered)
-        DAmisordered.append(da_misordered)
-        DAtarget.append(da_target)
-        Y.append(label)
+        for _ in range(5):
+            (ordered, misordered, target), (da_ordered, da_misordered, da_target), label = sample_triple(utterance_pairs[bidx], da_seq)
+            Xordered.append(ordered)
+            Xmisordered.append(misordered)
+            Xtarget.append(target)
+            DAordered.append(da_ordered)
+            DAmisordered.append(da_misordered)
+            DAtarget.append(da_target)
+            Y.append(label)
     # padding
     # Xordered = padding(Xordered, utt_vocab.word2id['<PAD>'])
     # Xmisordered = padding(Xmisordered, utt_vocab.word2id['<PAD>'])

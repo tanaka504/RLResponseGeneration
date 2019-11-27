@@ -205,3 +205,16 @@ def create_traindata(config, prefix='train'):
 def en_preprocess(utterance):
     if utterance == '': return ['<Silence>']
     return tokenize.word_tokenize(utterance.lower())
+
+def NLILoader(config, prefix='train'):
+    tag2id = {'positive': 0, 'neutral': 1, 'negative': 2}
+    jsondata = json.load(open('./data/corpus/dnli/dialogue_nli/dialogue_nli_{}.jsonl'.format(prefix)))
+    X = []
+    Y = []
+    for line in jsondata:
+        x1 = line['sentence1']
+        x2 = line['sentence2']
+        label = line['label']
+        X.append('[CLS]' + x1 + '[SEP]' + x2 + '[SEP]')
+        Y.append(tag2id[label])
+    return X, Y

@@ -1,5 +1,6 @@
 torch>=1.0.0
 numpy
+gensim
 pyhocon
 argparse
 matplotlib

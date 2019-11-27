@@ -35,7 +35,7 @@ class NLI(nn.Module):
         pred = self.classifier(output)
         loss = self.criterion(pred, Y)
         loss.backward()
-        return loss.item(), pred.data.tolist()
+        return loss.item(), pred
 
 def train(experiment):
     start = time.time()
@@ -65,6 +65,8 @@ def train(experiment):
             x = string2tensor(model.tokenizer, list(x))
             y = torch.tensor(y).cuda()
             loss, pred = model(X=x, Y=y)
+            print(pred.size())
+            input()
             model_opt.step()
             k += step_size
         print()
@@ -99,10 +101,35 @@ def validation(model, X, Y, config):
         x = [X[i] for i in batch_idx]
         y = [Y[i] for i in batch_idx]
         x = string2tensor(model.tokenizer, x)
+        y = torch.tensor(y).cuda()
         loss, pred = model(X=x, Y=y)
         k += step_size
         total_loss += loss
     return loss
+
+def evaluate(experiment):
+    config = initialize_env(experiment)
+    X, Y = NLILoader(config=config, prefix='test')
+    lr = config['lr']
+    batch_size = config['BATCH_SIZE']
+    classifier = Classifier(encoder_hidden=768, middle_layer_size=config['NLI_MIDDLE_LAYER']).cuda()
+    model = NLI(classifier=classifier, criterion=criterion, config=config).cuda()
+    model.load_state_dict(torch.load(os.path.join(config['log_dir'], 'statevalidbest.model')))
+    indexes = [i for i in range(X)]
+    k = 0
+    model.eval()
+    while k < len(indexes):
+        step_size = min(batch_size, len(indexes)-k)
+        print('\rEVALUATION|\t{} / {} .'.format(k+step_size, len(indexes)), end='')
+        batch_idx = indexes[k: k+step_size]
+        x = [X[i] for i in batch_idx]
+        y = [Y[i] for i in batch_idx]
+        x = string2tensor(model.tokenizer, list(x))
+        y = torch.tensor(y).cuda()
+        loss, pred = model(X=x, Y=y)
+        k += step_size
+    print()
+
 
 
 def string2tensor(tokenizer, X):

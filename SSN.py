@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import optim
 from nn_blocks import *
-from train import initialize_env, make_batchidx, parse
+from train import initialize_env, parse
 from utils import *
 import time, random
 from sklearn.metrics import accuracy_score, f1_score
@@ -35,7 +35,6 @@ class OrderPredictor(nn.Module):
         :return: loss, predicted probability
         """
         # Encoding
-        # utterance_pair_encoder_param = list(self.utterance_pair_encoder.named_parameters())
         utterance_pair_hidden = self.utterance_pair_encoder.initHidden(step_size)
         for idx in range(len(XOrdered)):
             o_output, _ = self.utterance_pair_encoder(X=XOrdered[idx], hidden=utterance_pair_hidden)
@@ -48,9 +47,6 @@ class OrderPredictor(nn.Module):
         XOrdered = torch.stack(XOrdered).squeeze(2)
         XMisOrdered = torch.stack(XMisOrdered).squeeze(2)
         XTarget = torch.stack(XTarget).squeeze(2)
-        # utt_pair_dot = make_dot(XOrdered.view(-1).sum(), params=dict(utterance_pair_encoder_param))
-        # utt_pair_dot.render("./data/images/utt_pair_enc")
-        # print('A: {}, {}, {}'.format(XOrdered.grad, XMisOrdered.grad, XTarget.grad))
         # Tensor:(window_size, batch_size, hidden_size)
 
         if self.config['use_da']:
@@ -60,7 +56,6 @@ class OrderPredictor(nn.Module):
         else:
             da_o_output, da_m_output, da_t_output = None, None, None
         # DATensor: (batch_size, window_size, hidden_size)
-        # order_reasoning_layer_param = list(self.order_reasoning_layer.named_parameters()) + utterance_pair_encoder_param + list(self.named_parameters())
         XOrdered, da_o_output = self.order_reasoning_layer(X=XOrdered, DA=da_o_output,
                                                            hidden=self.order_reasoning_layer.initHidden(step_size),
                                                            da_hidden=self.order_reasoning_layer.initDAHidden(step_size))
@@ -70,25 +65,18 @@ class OrderPredictor(nn.Module):
         XTarget, da_t_output = self.order_reasoning_layer(X=XTarget, DA=da_t_output,
                                                            hidden=self.order_reasoning_layer.initHidden(step_size),
                                                            da_hidden=self.order_reasoning_layer.initDAHidden(step_size))
-        # orl_dot = make_dot(XOrdered.view(-1).sum(), params=dict(order_reasoning_layer_param))
-        # orl_dot.render("./data/images/orl")
-        # print('B: {}, {}, {}'.format(XOrdered.grad, XMisOrdered.grad, XTarget.grad))
         if not da_o_output is None:
             da_output = torch.cat((da_o_output, da_m_output, da_t_output), dim=-1)
             # da_output: (batch_size, da_hidden_size * 3)
         else:
             da_output = None
         output = torch.cat((XOrdered, XMisOrdered, XTarget), dim=-1)
-
-        # print('C: ', output.grad)
         # output: (batch_size, hidden_size * 6)
-        # classifier_param = list(self.classifier.named_parameters()) + order_reasoning_layer_param
+
         pred = self.classifier(output, da_output).squeeze(1)
         Y = Y.squeeze(1)
         loss = criterion(pred, Y)
         torch.nn.utils.clip_grad_norm_(self.parameters(), self.config['clip'])
-        # classifier_dot = make_dot(loss, params=classifier_param)
-        # classifier_dot.render("./data/images/classifier")
         if self.training:
             loss.backward()
         return loss.item(), pred.data.tolist()
@@ -121,23 +109,18 @@ def train(experiment):
                                               utterance_hidden=config['SSN_ENC_HIDDEN'], padding_idx=utt_vocab.word2id['<PAD>']).cuda()
     if config['use_da']:
         da_pair_encoder = DAPairEncoder(da_hidden_size=config['SSN_DA_HIDDEN'], da_embed_size=config['SSN_DA_EMBED'], da_vocab_size=len(da_vocab.word2id)).cuda()
-        # da_pair_encoder_opt = optim.Adam(da_pair_encoder.parameters(), lr=lr)
     else:
         da_pair_encoder = None
     order_reasoning_layer = OrderReasoningLayer(encoder_hidden_size=config['SSN_ENC_HIDDEN'], hidden_size=config['SSN_REASONING_HIDDEN'],
                                                 da_hidden_size=config['SSN_DA_HIDDEN']).cuda()
     classifier = Classifier(hidden_size=config['SSN_REASONING_HIDDEN'], middle_layer_size=config['SSN_MIDDLE_LAYER'], da_hidden_size=config['SSN_DA_HIDDEN'])
-    # utterance_pair_encoder_opt = optim.Adam(utterance_pair_encoder.parameters(), lr=lr)
-    # order_reasoning_layer_opt = optim.Adam(order_reasoning_layer.parameters(), lr=lr)
-    # classifier_opt = optim.Adam(classifier.parameters(), lr=lr)
 
     predictor = OrderPredictor(utterance_pair_encoder=utterance_pair_encoder, order_reasoning_layer=order_reasoning_layer,
                                da_pair_encoder=da_pair_encoder, classifier=classifier, config=config).cuda()
-    # pprint(list(predictor.named_parameters()))
     model_opt = optim.Adam(predictor.parameters(), lr=lr, weight_decay=1e-5)
     print('total parameters: ', count_parameters(predictor))
-    # criterion = nn.CrossEntropyLoss(ignore_index=utt_vocab.word2id['<PAD>'])
     criterion = nn.BCELoss()
+    
     print('--- Start Training ---')
     start = time.time()
     _valid_loss = None

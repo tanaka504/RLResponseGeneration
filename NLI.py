@@ -84,14 +84,17 @@ def train(experiment):
             print_total_loss += loss
         print()
         valid_loss = validation(model, X_valid, Y_valid, config)
+
         def save(fname):
             torch.save(model.state_dict(), os.path.join(config['log_dir'], 'state{}.model'.format(fname)))
+
         if _valid_loss is None:
             save('validbest')
             _valid_loss = valid_loss
         else:
             if _valid_loss > valid_loss:
                 save('validbest')
+                _valid_loss = valid_loss
                 early_stop = 0
             else:
                 early_stop += 1
@@ -131,7 +134,7 @@ def validation(model, X, Y, config):
         k += step_size
         total_loss += loss
     print('Avg. acc.: ', np.mean(val_acc))
-    return loss
+    return total_loss
 
 
 def evaluate(experiment):

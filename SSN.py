@@ -9,7 +9,6 @@ import time, random
 from sklearn.metrics import accuracy_score, f1_score
 import numpy as np
 from scipy import stats
-from torchviz import make_dot
 from pprint import pprint
 
 
@@ -94,43 +93,6 @@ class OrderPredictor(nn.Module):
             loss.backward()
         return loss.item(), pred.data.tolist()
 
-    def baseline(self, XOrdered, XTarget,
-                DAOrdered, DATarget, Y, step_size, criterion):
-        utterance_pair_hidden = self.utterance_pair_encoder.initHidden(step_size)
-        for idx in range(len(XOrdered)):
-            o_output, _ = self.utterance_pair_encoder(X=XOrdered[idx], hidden=utterance_pair_hidden)
-            XOrdered[idx] = o_output
-        for idx in range(len(XTarget)):
-            t_output, t_hidden = self.utterance_pair_encoder(X=XTarget[idx], hidden=utterance_pair_hidden)
-            XTarget[idx] = t_output
-        XOrdered = torch.stack(XOrdered).squeeze(2)
-        XTarget = torch.stack(XTarget).squeeze(2)
-        # Tensor:(window_size, batch_size, hidden_size)
-
-        if self.config['use_da']:
-            da_o_output = self.da_pair_encoder(DAOrdered).permute(1, 0, 2)
-            da_t_output = self.da_pair_encoder(DATarget).permute(1, 0, 2)
-        else:
-            da_o_output, da_m_output, da_t_output = None, None, None
-        # DATensor: (batch_size, window_size, hidden_size)
-        XOrdered, da_o_output = self.order_reasoning_layer.baseline(X=XOrdered, DA=da_o_output,
-                                                           hidden=self.order_reasoning_layer.initHidden(step_size),
-                                                           da_hidden=self.order_reasoning_layer.initDAHidden(step_size))
-        XTarget, da_t_output = self.order_reasoning_layer.forward(X=XTarget, DA=da_t_output,
-                                                          hidden=self.order_reasoning_layer.initHidden(step_size),
-                                                          da_hidden=self.order_reasoning_layer.initDAHidden(step_size))
-        if not da_o_output is None:
-            da_output = torch.cat((da_o_output, da_t_output), dim=-1)
-        else:
-            da_output = None
-        output = torch.cat((XOrdered[-1], XTarget), dim=-1)
-
-        pred = self.classifier.baseline(output, da_output)
-        # Y = Y.squeeze(1)
-        loss = criterion(pred, Y)
-        if self.training:
-            loss.backward()
-        return loss.item(), pred.data.tolist()
 
 
 def train(experiment):
@@ -188,11 +150,8 @@ def train(experiment):
         da_pairs = [[batch[pi] for pi in range(0, len(batch), 2)] for batch in da_pairs]
     else:
         da_pairs = None
-    if experiment == 'baseline':
-        (XOrdered, XMisOrdered, XTarget), (DAOrdered, DAMisOrdered, DATarget), Y = baseline_triples(utterance_pairs, da_pairs)
-    else:
-        tmp = make_triple(utterance_pairs=utterance_pairs, da_pairs=da_pairs)
-        (XOrdered, XMisOrdered, XTarget), (DAOrdered, DAMisOrdered, DATarget), Y = tmp
+
+    (XOrdered, XMisOrdered, XTarget), (DAOrdered, DAMisOrdered, DATarget), Y = make_triple(utterance_pairs=utterance_pairs, da_pairs=da_pairs)
 
     for e in range(config['EPOCH']):
         tmp_time = time.time()
@@ -208,15 +167,6 @@ def train(experiment):
             batch_idx = indexes[k: k+step_size]
             model_opt.zero_grad()
 
-            # utterance_pairs = [[XU + [utt_vocab.word2id['<SEP>']] + YU for XU, YU in zip(XU_train[seq_idx], YU_train[seq_idx])] for seq_idx in batch_idx]
-            # utterance_pairs = [[batch[pi] for pi in range(0, len(batch), 2)] for batch in utterance_pairs]
-            # if config['use_da']:
-            #     da_pairs = [[[XD, YD] for XD, YD in zip(XD_train[seq_idx], YD_train[seq_idx])] for seq_idx in batch_idx]
-            #     da_pairs = [[batch[pi] for pi in range(0, len(batch), 2)] for batch in da_pairs]
-            # else:
-            #     da_pairs = None
-            # (Xordered, Xmisordered, Xtarget), (DAordered, DAmisordered, DAtarget), y = make_triple(utterance_pairs, utt_vocab, da_pairs)
-            # utterance_pairs: (batch_size, conv_len, seq_len)
             Xordered = padding([XOrdered[i] for i in batch_idx], pad_idx=utt_vocab.word2id['<PAD>'])
             Xmisordered = padding([XMisOrdered[i] for i in batch_idx], pad_idx=utt_vocab.word2id['<PAD>'])
             Xtarget = padding([XTarget[i] for i in batch_idx], pad_idx=utt_vocab.word2id['<PAD>'])
@@ -227,25 +177,13 @@ def train(experiment):
             else:
                 DAordered, DAmisordered, DAtarget = None, None, None
             y = torch.tensor([Y[i] for i in batch_idx], dtype=torch.float).cuda()
-            if experiment == 'baseline':
-                loss, pred = predictor.baseline(XOrdered=Xordered, XTarget=Xtarget,
-                                                 DAOrdered=DAordered, DATarget=DAtarget,
-                                                 Y=y, step_size=step_size, criterion=criterion)
-            else:
-                loss, pred = predictor.forward(XOrdered=Xordered, XMisOrdered=Xmisordered, XTarget=Xtarget,
-                                               DAOrdered=DAordered, DAMisOrdered=DAmisordered, DATarget=DAtarget,
-                                               Y=y, step_size=step_size, criterion=criterion)
-
+            loss, pred = predictor(XOrdered=Xordered, XMisOrdered=Xmisordered, XTarget=Xtarget,
+                                   DAOrdered=DAordered, DAMisOrdered=DAmisordered, DATarget=DAtarget,
+                                   Y=y, step_size=step_size, criterion=criterion)
             print_total_loss += loss
             model_opt.step()
             k += step_size
-            # image_g_params = list(predictor.named_parameters())
-            # image_g_params += list(predictor.utterance_pair_encoder.named_parameters())  # エラー回避
-            # image_g_params += list(predictor.order_reasoning_layer.named_parameters())  # エラー回避
-            # image_g_params += list(predictor.classifier.named_parameters())  # エラー回避
-            # # image_g_params += [("XOrdered", Xordered), ("XMisOrdered", Xmisordered), ("XTarget", Xtarget), ("Y", y)]
-            # image_g_dot = make_dot(loss, params=dict(image_g_params))
-            # image_g_dot.render("./data/images/image_g_graph")
+            assert not all(ele == pred[0] for ele in pred[1:]), 'All probability is same value'
             result = [0 if line < 0.5 else 1 for line in pred]
             train_acc.append(accuracy_score(y_true=y.data.tolist(), y_pred=result))
         print()
@@ -313,10 +251,8 @@ def validation(experiment, XU_valid, YU_valid, XD_valid, YD_valid, model, utt_vo
             da_pairs = [[[XD, YD] for XD, YD in zip(XD_valid[seq_idx], YD_valid[seq_idx])] for seq_idx in batch_idx]
         else:
             da_pairs = None
-        if experiment == 'baseline':
-            (Xordered, Xmisordered, Xtarget), (DAordered, DAmisordered, DAtarget), Y = baseline_triples(utterance_pairs, da_pairs)
-        else:
-            (Xordered, Xmisordered, Xtarget), (DAordered, DAmisordered, DAtarget), Y = make_triple(utterance_pairs, da_pairs)
+
+        (Xordered, Xmisordered, Xtarget), (DAordered, DAmisordered, DAtarget), Y = make_triple(utterance_pairs, da_pairs)
         Xordered = padding(Xordered, pad_idx=utt_vocab.word2id['<PAD>'])
         Xmisordered = padding(Xmisordered, pad_idx=utt_vocab.word2id['<PAD>'])
         Xtarget = padding(Xtarget, pad_idx=utt_vocab.word2id['<PAD>'])
@@ -327,14 +263,9 @@ def validation(experiment, XU_valid, YU_valid, XD_valid, YD_valid, model, utt_vo
         else:
             DAordered, DAmisordered, DAtarget = None, None, None
         y = torch.tensor(Y, dtype=torch.float).cuda()
-        if experiment == 'baseline':
-            loss, preds = model.baseline(XOrdered=Xordered, XTarget=Xtarget,
-                                         DAOrdered=DAordered, DATarget=DAtarget,
-                                         Y=y, step_size=step_size*5, criterion=criterion)
-        else:
-            loss, preds = model.forward(XOrdered=Xordered, XMisOrdered=Xmisordered, XTarget=Xtarget,
-                                        DAOrdered=DAordered, DAMisOrdered=DAmisordered, DATarget=DAtarget,
-                                        Y=y, step_size=step_size*5, criterion=criterion)
+        loss, preds = model.forward(XOrdered=Xordered, XMisOrdered=Xmisordered, XTarget=Xtarget,
+                                    DAOrdered=DAordered, DAMisOrdered=DAmisordered, DATarget=DAtarget,
+                                    Y=y, step_size=step_size*5, criterion=criterion)
         result = [0 if line < 0.5 else 1 for line in preds]
         valid_acc.append(accuracy_score(y_true=y.data.tolist(), y_pred=result))
         k += step_size

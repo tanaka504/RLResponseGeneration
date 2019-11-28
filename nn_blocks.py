@@ -156,16 +156,6 @@ class OrderReasoningLayer(nn.Module):
         # output: (batch_size, hidden_size * 2)
         return output, da_output
 
-    def baseline(self, X, DA, hidden, da_hidden):
-        X = self.xh(X)
-        output, _ = self.hh(X, hidden)
-        if not DA is None:
-            da_output, _ = self.tt(DA, da_hidden)
-            da_output = da_output[-1]
-        else:
-            da_output = None
-        return output, da_output
-
     def initHidden(self, batch_size):
         return torch.zeros(1, batch_size, self.hidden_size).cuda()
 

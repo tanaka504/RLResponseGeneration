@@ -30,13 +30,20 @@ class NLI(nn.Module):
                                                                            output_attentions=True)
         self.criterion = criterion
     def forward(self, X, Y):
-        x_hidden, x1_attentions = self.encoder(X)[-2:]
+        x_hidden, x_attentions = self.encoder(X)[-2:]
         x_hidden = x_hidden[-1]
         output = x_hidden[:, 0, :] # use [CLS] label representation
         pred = self.classifier(output)
         loss = self.criterion(pred, Y)
         loss.backward()
         return loss.item(), pred
+
+    def predict(self, X):
+        x_hidden, x_attentions = self.encoder(X)[-2:]
+        x_hidden = [-1]
+        output = x_hidden[:, 0, :]
+        pred = self.classifier(output)
+        return pred
 
 def train(experiment):
     start = time.time()

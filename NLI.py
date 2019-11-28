@@ -51,6 +51,7 @@ def train(experiment):
     model_opt = optim.Adam(model.parameters(), lr=lr)
     _valid_loss = None
     early_stop = 0
+    print_total_loss = 0
     for e in range(config['EPOCH']):
         tmp_time = time.time()
         print('Epoch {} start.'.format(e+1))
@@ -73,6 +74,7 @@ def train(experiment):
             train_acc.append(accuracy_score(y_true=y.data.tolist(), y_pred=preds))
             model_opt.step()
             k += step_size
+            print_total_loss += loss
         print()
         valid_loss = validation(model, X_valid, Y_valid, config)
         def save(fname):
@@ -91,7 +93,7 @@ def train(experiment):
         if (e + 1) % config['LOGGING_FREQ'] == 0:
             print_loss_avg = print_total_loss / config['LOGGING_FREQ']
             print_total_loss = 0
-            # print('train acc. | ', np.mean(train_acc))
+            print('train acc. | ', np.mean(train_acc))
             print('epoch %d\tloss %.4f\tvalid loss %.4f\t | exec time %.4f' % (e + 1, print_loss_avg, valid_loss, time.time() - tmp_time))
 
         if (e + 1) % config['SAVE_MODEL'] == 0:

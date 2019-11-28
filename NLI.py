@@ -24,8 +24,8 @@ class NLI(nn.Module):
         super(NLI, self).__init__()
         self.classifier = classifier
         self.config = config
-        self.tokenizer = DistilBertTokenizer.from_pretrained(config['BERT_MODEL'])
-        self.encoder = DistilBertForSequenceClassification.from_pretrained(config['BERT_MODEL'],
+        self.tokenizer = BertTokenizer.from_pretrained(config['BERT_MODEL'])
+        self.encoder = BertForSequenceClassification.from_pretrained(config['BERT_MODEL'],
                                                                            output_hidden_states=True,
                                                                            output_attentions=True)
         self.criterion = criterion
@@ -125,16 +125,19 @@ def validation(model, X, Y, config):
         total_loss += loss
     print('Avg. acc.: ', np.mean(val_acc))
     return loss
+
+
 def evaluate(experiment):
     config = initialize_env(experiment)
     X, Y = NLILoader(config=config, prefix='test')
-    lr = config['lr']
+    criterion = nn.CrossEntropyLoss()
     batch_size = config['BATCH_SIZE']
     classifier = Classifier(encoder_hidden=768, middle_layer_size=config['NLI_MIDDLE_LAYER']).cuda()
     model = NLI(classifier=classifier, criterion=criterion, config=config).cuda()
     model.load_state_dict(torch.load(os.path.join(config['log_dir'], 'statevalidbest.model')))
     indexes = [i for i in range(X)]
     k = 0
+    acc = []
     model.eval()
     while k < len(indexes):
         step_size = min(batch_size, len(indexes)-k)
@@ -145,9 +148,11 @@ def evaluate(experiment):
         x = string2tensor(model.tokenizer, list(x))
         y = torch.tensor(y).cuda()
         loss, pred = model(X=x, Y=y)
+        preds = torch.argmax(pred, dim=1).data.tolist()
+        acc.append(accuracy_score(y_true=y.data.tolist(), y_pred=preds))
         k += step_size
     print()
-
+    print('Avg. acc.: ', np.mean(acc))
 
 
 def string2tensor(tokenizer, X):

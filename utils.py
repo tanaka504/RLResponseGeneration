@@ -162,7 +162,6 @@ def create_traindata(config, prefix='train'):
     elif config['lang'] == 'ja':
         file_pattern = re.compile(r'^data([0-9]*?)\_{}\_([0-9]*?)\.jsonlines$'.format(prefix))
     files = [f for f in os.listdir(config['train_path']) if file_pattern.match(f)]
-    if prefix == 'train': files = files[:len(files)//20]
     da_posts = []
     da_cmnts = []
     utt_posts = []

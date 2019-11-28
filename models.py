@@ -61,10 +61,10 @@ class RL(nn.Module):
         context = [s for s in X_utt.data.tolist()]
         reward = torch.tensor(self.reward(pred_seq, ref_seq, context)).cuda()
         b = torch.tensor(self.reward(base_seq, ref_seq, context)).cuda()
+        print('sample: {}, base: {}'.format(reward, b))
 
         # Optimized with REINFORCE
         RL_loss = CE_loss * (reward - b)
-        # pg_loss = pg_loss.mean()
         pg_loss = CE_loss * self.config['lambda'] + RL_loss * (1 - self.config['lambda'])
         pg_loss = pg_loss.mean()
         if self.training:
@@ -77,7 +77,7 @@ class RL(nn.Module):
             return pg_loss.item(), utt_context_hidden, reward
 
     def reward(self, hypothesis, reference, context):
-        # TODO: 報酬を考える
+        # TODO: Implement reward functions
         r_bleu = self.calc_bleu(reference, hypothesis)
         return r_bleu
 
@@ -293,7 +293,7 @@ class HRED(nn.Module):
         # Encode Utterance
         utt_encoder_hidden = self.utt_encoder.initHidden(step_size)
         utt_encoder_output, utt_encoder_hidden = self.utt_encoder(X_utt, utt_encoder_hidden)  # (batch_size, 1, UTT_HIDDEN)
-
+        utt_encoder_output = utt_encoder_output.unsqueeze(1)
         # Update Context Encoder
         utt_context_output, utt_context_hidden = self.utt_context(utt_encoder_output, utt_context_hidden) # (batch_size, 1, UTT_HIDDEN)
 

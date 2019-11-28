@@ -4,6 +4,7 @@ import torch.nn.functional as F
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
 
+
 class DAEncoder(nn.Module):
     def __init__(self, da_input_size, da_embed_size,da_hidden):
         super(DAEncoder, self).__init__()
@@ -15,8 +16,8 @@ class DAEncoder(nn.Module):
         embedding = torch.tanh(self.eh(self.xe(DA))) # (batch_size, 1) -> (batch_size, 1, hidden_size)
         return embedding
 
-    def initHidden(self, batch_size, device):
-        return torch.zeros(batch_size, self.hidden_size).to(device)
+    def initHidden(self, batch_size):
+        return torch.zeros(batch_size, self.hidden_size).cuda()
 
 
 class DAContextEncoder(nn.Module):
@@ -30,9 +31,9 @@ class DAContextEncoder(nn.Module):
         output, hidden = self.hh(output, prev_hidden)
         return output, hidden
 
-    def initHidden(self, batch_size, device):
+    def initHidden(self, batch_size):
         # h_0 = (num_layers * num_directions, batch_size, hidden_size)
-        return torch.zeros(1, batch_size, self.hidden_size).to(device)
+        return torch.zeros(1, batch_size, self.hidden_size).cuda()
 
 
 class UtteranceEncoder(nn.Module):
@@ -58,15 +59,17 @@ class UtteranceEncoder(nn.Module):
         # unpacking
         output, _ = pad_packed_sequence(output, batch_first=True)
         # extract last timestep output
-        idx = (lengths - 1).view(-1, 1).expand(output.size(0), output.size(2)).unsqueeze(1)
-        output = output.gather(1, idx)
+        # idx = (lengths - 1).view(-1, 1).expand(output.size(0), output.size(2)).unsqueeze(1)
+        # output = output.gather(1, idx)
+        # concat last timestep output of each direction
+        output = torch.cat((output[:, -1, :self.hidden_size], output[:, 0, self.hidden_size:]), dim=-1)
         # unsorting
         output = output[unsort_idx]
         hidden = hidden[:, unsort_idx]
         return output, hidden
 
-    def initHidden(self, batch_size, device):
-        return torch.zeros(2, batch_size, self.hidden_size).to(device)
+    def initHidden(self, batch_size):
+        return torch.zeros(2, batch_size, self.hidden_size).cuda()
 
 
 class UtteranceContextEncoder(nn.Module):
@@ -80,8 +83,8 @@ class UtteranceContextEncoder(nn.Module):
         output, hidden = self.hh(output, prev_hidden)
         return output, hidden
 
-    def initHidden(self, batch_size, device):
-        return torch.zeros(1, batch_size, self.hidden_size).to(device)
+    def initHidden(self, batch_size):
+        return torch.zeros(1, batch_size, self.hidden_size).cuda()
 
 
 class UtteranceDecoder(nn.Module):
@@ -123,65 +126,83 @@ class DAPairEncoder(nn.Module):
         embeded = embeded.view(c, n, -1)
         return torch.tanh(self.eh(embeded))
 
+
 class OrderReasoningLayer(nn.Module):
-    def __init__(self, encoder_hidden_size, hidden_size, middle_layer_size, da_hidden_size, config):
+    def __init__(self, encoder_hidden_size, hidden_size, da_hidden_size):
         super(OrderReasoningLayer, self).__init__()
         self.encoder_hidden_size = encoder_hidden_size
         self.hidden_size = hidden_size
-        self.middle_layer_size = middle_layer_size
         self.da_hidden_size = da_hidden_size
-        self.config = config
 
-        self.max_pooling = ChannelPool(kernel_size=3)
         self.xh = nn.Linear(self.encoder_hidden_size * 2, self.hidden_size)
         self.hh = nn.GRU(self.hidden_size, self.hidden_size, bidirectional=False)
         self.hh_b = nn.GRU(self.hidden_size, self.hidden_size, bidirectional=False)
         self.tt = nn.GRU(self.da_hidden_size, self.da_hidden_size)
-        self.hm = nn.Linear(self.hidden_size * 6, self.middle_layer_size)
-        if self.config['use_da']:
-            self.mm = nn.Linear(self.middle_layer_size + self.da_hidden_size * 3, self.middle_layer_size)
-        self.my = nn.Linear(self.middle_layer_size, 2)
+        self.max_pooling = ChannelPool(kernel_size=3)
 
-    def forward(self, XOrdered, XMisOrdered, XTarget,
-                DAOrdered, DAMisOrdered, DATarget, Y, hidden, da_hidden):
-        XOrdered = self.xh(XOrdered)
-        XMisOrdered = self.xh(XMisOrdered)
-        XTarget = self.xh(XTarget)
-        O_output, _ = self.hh(XOrdered, hidden)
-        O_output_b, _ = self.hh_b(self._invert_tensor(XOrdered), hidden)
-        M_output, _ = self.hh(XMisOrdered, hidden)
-        M_output_b, _ = self.hh_b(self._invert_tensor(XMisOrdered), hidden)
-        T_output, _ = self.hh(XTarget, hidden)
-        T_output_b, _ = self.hh_b(self._invert_tensor(XTarget), hidden)
+    def forward(self, X, DA, hidden, da_hidden):
+        X = self.xh(X)
+        output, _ = self.hh(X, hidden)
+        output_b, _ = self.hh_b(self._invert_tensor(X), hidden)
         # output: (window_size, batch_size, hidden_size)
 
-        if self.config['use_da']:
-            da_o_output, _ = self.tt(DAOrdered, da_hidden)
-            da_m_output, _ = self.tt(DAMisOrdered, da_hidden)
-            da_t_output, _ = self.tt(DATarget, da_hidden)
-            da_output = torch.cat((da_o_output[-1], da_m_output[-1], da_t_output[-1]), dim=-1)
-
-        O_output = torch.cat((self.max_pooling.forward(O_output), self.max_pooling.forward(O_output_b)), dim=1)
-        M_output = torch.cat((self.max_pooling.forward(M_output), self.max_pooling.forward(M_output_b)), dim=1)
-        T_output = torch.cat((self.max_pooling.forward(T_output), self.max_pooling.forward(T_output_b)), dim=1)
-        # output: (batch_size, hidden_size * 2)
-        output = torch.cat((O_output, M_output, T_output), dim=-1)
-        # output: (batch_size, hidden_size * 6)
-        if self.config['use_da']:
-            output = self.mm(torch.cat((self.hm(output), da_output), dim=-1))
+        if not DA is None:
+            da_output, _ = self.tt(DA, da_hidden)
+            da_output = da_output[-1]
         else:
-            output = self.hm(output)
-        pred = self.my(output)
-        return pred
+            da_output = None
 
-    def initHidden(self, batch_size, device):
-        return torch.zeros(1, batch_size, self.hidden_size).to(device)
+        output = torch.cat((self.max_pooling.forward(output), self.max_pooling.forward(output_b)), dim=1)
+        # output: (batch_size, hidden_size * 2)
+        return output, da_output
 
-    def initDAHidden(self, batch_size, device):
-        return torch.zeros(1, batch_size, self.da_hidden_size).to(device)
+    def baseline(self, X, DA, hidden, da_hidden):
+        X = self.xh(X)
+        output, _ = self.hh(X, hidden)
+        if not DA is None:
+            da_output, _ = self.tt(DA, da_hidden)
+            da_output = da_output[-1]
+        else:
+            da_output = None
+        return output, da_output
+
+    def initHidden(self, batch_size):
+        return torch.zeros(1, batch_size, self.hidden_size).cuda()
+
+    def initDAHidden(self, batch_size):
+        return torch.zeros(1, batch_size, self.da_hidden_size).cuda()
 
     def _invert_tensor(self, X):
         return X[torch.arange(X.size(0)-1, -1, -1)]
+
+class Classifier(nn.Module):
+    def __init__(self, hidden_size, middle_layer_size, da_hidden_size):
+        super(Classifier, self).__init__()
+        self.hidden_size = hidden_size
+        self.middle_layer_size = middle_layer_size
+        self.da_hidden_size = da_hidden_size
+
+        self.hm = nn.Linear(self.hidden_size * 6, self.middle_layer_size)
+        self.base_hm = nn.Linear(self.hidden_size * 3, self.middle_layer_size)
+        self.mm = nn.Linear(self.middle_layer_size + self.da_hidden_size * 3, self.middle_layer_size)
+        self.my = nn.Linear(self.middle_layer_size, 1)
+
+    def forward(self, X, DA=None):
+        if not DA is None:
+            output = self.mm(torch.cat((self.hm(X), DA), dim=-1))
+        else:
+            output = self.hm(X)
+        tmp = self.my(output)
+        pred = torch.sigmoid(tmp)
+        return pred
+
+    def baseline(self, X, DA=None):
+        if not DA is None:
+            output = nn.ReLU(self.mm(torch.cat((self.base_hm(X), DA), dim=-1)))
+        else:
+            output = nn.ReLU(self.base_hm(X))
+        pred = torch.sigmoid(self.my(output))
+        return pred
 
 
 class ChannelPool(nn.MaxPool1d):

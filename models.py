@@ -1,18 +1,12 @@
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
 from nn_blocks import *
 from queue import PriorityQueue
 import operator
 from nltk.translate.bleu_score import corpus_bleu, SmoothingFunction
-import phsic
-from torchnlp.metrics import get_moses_multi_bleu
 
 
 class RL(nn.Module):
-    def __init__(self, utt_vocab, utt_encoder, utt_context, utt_decoder, device, config):
+    def __init__(self, utt_vocab, utt_encoder, utt_context, utt_decoder, config):
         super(RL, self).__init__()
-        self.device = device
         self.utt_vocab = utt_vocab
         self.utt_encoder = utt_encoder
         self.utt_context = utt_context
@@ -62,16 +56,17 @@ class RL(nn.Module):
         
         # get reward
         pred_seq = [s for s in pred_seq.transpose(0,1).data.tolist()]
-        base_seq = [s for s in base_seq.transpose(0,1).data.tolist()]
+        base_seq = [[w[0] for w in s] for s in base_seq.transpose(0,1).data.tolist()]
         ref_seq = [s for s in Y_utt.data.tolist()]
         context = [s for s in X_utt.data.tolist()]
-        reward = torch.tensor(self.reward(pred_seq, ref_seq, context)).to(self.device)
-        b = torch.tensor(self.reward(base_seq, ref_seq, context)).to(self.device)
+        reward = torch.tensor(self.reward(pred_seq, ref_seq, context)).cuda()
+        b = torch.tensor(self.reward(base_seq, ref_seq, context)).cuda()
 
         # Optimized with REINFORCE
-        pg_loss = CE_loss * (reward - b)
+        RL_loss = CE_loss * (reward - b)
+        # pg_loss = pg_loss.mean()
+        pg_loss = CE_loss * self.config['lambda'] + RL_loss * (1 - self.config['lambda'])
         pg_loss = pg_loss.mean()
-
         if self.training:
             if last:
                 pg_loss.backward()
@@ -84,7 +79,6 @@ class RL(nn.Module):
     def reward(self, hypothesis, reference, context):
         # TODO: 報酬を考える
         r_bleu = self.calc_bleu(reference, hypothesis)
-        r_phsic = self.calc_phsic(hypothesis, context)
         return r_bleu
 
     def calc_bleu(self, refs, hyps):
@@ -94,16 +88,16 @@ class RL(nn.Module):
         # if bleu is None: bleu = 0.0
         refs = [[list(map(str, ref))] for ref in refs]
         hyps = [list(map(str, hyp)) for hyp in hyps]
-        bleu = corpus_bleu(refs, hyps, smoothing_function=SmoothingFunction().method2)
+        try:
+            bleu = corpus_bleu(refs, hyps, smoothing_function=SmoothingFunction().method2)
+        except:
+            bleu = 1e-10
         return bleu
-
-    def calc_phsic(self, hyps, context):
-        return 1
 
     def predict(self, X_utt, utt_context_hidden):
         with torch.no_grad():
             utt_decoder_hidden = self._encoding(X_utt=X_utt, utt_context_hidden=utt_context_hidden, step_size=1)
-            prev_words = torch.tensor([[self.utt_vocab.word2id['<BOS>']]]).to(self.device)
+            prev_words = torch.tensor([[self.utt_vocab.word2id['<BOS>']]]).cuda()
             if self.config['beam_size']:
                 pred_seq, utt_decoder_hidden = self._beam_decode(decoder=self.utt_decoder,
                                                                  decoder_hiddens=utt_decoder_hidden,
@@ -115,9 +109,9 @@ class RL(nn.Module):
 
     def _encoding(self, X_utt, utt_context_hidden, step_size):
         # Encode Utterance
-        utt_encoder_hidden = self.utt_encoder.initHidden(step_size, self.device)
+        utt_encoder_hidden = self.utt_encoder.initHidden(step_size)
         utt_encoder_output, utt_encoder_hidden = self.utt_encoder(X_utt, utt_encoder_hidden)  # (batch_size, 1, UTT_HIDDEN)
-
+        utt_encoder_output = utt_encoder_output.unsqueeze(1)
         # Update Context Encoder
         utt_context_output, utt_context_hidden = self.utt_context(utt_encoder_output, utt_context_hidden) # (batch_size, 1, UTT_CONTEXT)
 
@@ -130,7 +124,7 @@ class RL(nn.Module):
             preds, decoder_hidden, _ = decoder(prev_words, decoder_hidden)
             _, topi = preds.topk(1)
             pred_seq.append(topi.item())
-            prev_words = torch.tensor([[topi]]).to(self.device)
+            prev_words = torch.tensor([[topi]]).cuda()
             if topi == EOS_token:
                 break
         return pred_seq, decoder_hidden
@@ -144,7 +138,7 @@ class RL(nn.Module):
             probs = F.softmax(filtered_logits, dim=-1)
             next_token = torch.multinomial(probs, 1)
             pred_seq.append(next_token)
-            prev_words = torch.tensor(next_token).to(self.device)
+            prev_words = torch.tensor(next_token).cuda()
             if next_token == EOS_token:
                 break
         return pred_seq, decoder_hidden
@@ -189,10 +183,8 @@ class RL(nn.Module):
                 decoder_hidden = (decoder_hiddens[0][:, idx, :].unsqueeze(0), decoder_hiddens[1][idx, :, :].unsqueeze(0))
             else:
                 decoder_hidden = decoder_hiddens[:, idx, :].unsqueeze(0)
-
             # encoder_output = encoder_outputs[idx, :, :].unsqueeze(1)
-
-            decoder_input = torch.tensor([[BOS_token]]).to(self.device)
+            decoder_input = torch.tensor([[BOS_token]]).cuda()
 
             endnodes = []
             number_required = min((topk + 1), (topk - len(endnodes)))
@@ -203,29 +195,24 @@ class RL(nn.Module):
 
             while 1:
                 if qsize > 2000: break
-
                 score, n = nodes.get()
                 decoder_input = n.wordid
                 decoder_hidden = n.hidden
-
                 if n.wordid.item() == EOS_token and n.prevNode != None:
                     endnodes.append((score, n))
                     if len(endnodes) >= number_required:
                         break
                     else:
                         continue
-
                 decoder_output, decoder_hidden, _ = decoder(decoder_input, decoder_hidden)
                 log_prob, indexes = torch.topk(decoder_output, config['beam_size'])
                 nextnodes = []
-
                 for new_k in range(config['beam_size']):
                     decoded_t = indexes[0][new_k].view(1, -1)
                     log_p = log_prob[0][new_k].item()
                     node = BeamNode(hidden=decoder_hidden, previousNode=n, wordId=decoded_t, logProb=n.logp + log_p, length=n.length + 1)
                     score = -node.eval()
                     nextnodes.append((score, node))
-
                 for i in range(len(nextnodes)):
                     score, nn = nextnodes[i]
                     nodes.put((score, nn))
@@ -253,10 +240,9 @@ class RL(nn.Module):
 
 
 class HRED(nn.Module):
-    def __init__(self, utt_vocab, device,
+    def __init__(self, utt_vocab,
                  utt_encoder, utt_context, utt_decoder, config):
         super(HRED, self).__init__()
-        self.device = device
         self.utt_vocab = utt_vocab
         self.utt_encoder = utt_encoder
         self.utt_context = utt_context
@@ -282,18 +268,18 @@ class HRED(nn.Module):
         if self.training:
             if last:
                 loss.backward()
-                return loss.item(), utt_context_hidden
+                return loss.item(), utt_context_hidden, 0
             else:
-                return loss, utt_context_hidden
+                return loss, utt_context_hidden, 0
         else:
-            return loss.item(), utt_context_hidden
+            return loss.item(), utt_context_hidden, 0
 
     def predict(self, X_utt, utt_context_hidden, step_size=1):
         with torch.no_grad():
             utt_dec_hidden = self._encoding(X_utt=X_utt, utt_context_hidden=utt_context_hidden, step_size=step_size)
 
             utt_decoder_hidden = utt_dec_hidden
-            prev_words = torch.tensor([[self.utt_vocab.word2id['<BOS>']] for _ in range(step_size)]).to(self.device)
+            prev_words = torch.tensor([[self.utt_vocab.word2id['<BOS>']] for _ in range(step_size)]).cuda()
 
             # if self.config['beam_size']:
             #     pred_seq, utt_decoder_hidden = self._beam_decode(decoder=self.utt_decoder, decoder_hiddens=utt_decoder_hidden, tag=tag, config=self.config)
@@ -305,7 +291,7 @@ class HRED(nn.Module):
 
     def _encoding(self, X_utt, utt_context_hidden, step_size):
         # Encode Utterance
-        utt_encoder_hidden = self.utt_encoder.initHidden(step_size, self.device)
+        utt_encoder_hidden = self.utt_encoder.initHidden(step_size)
         utt_encoder_output, utt_encoder_hidden = self.utt_encoder(X_utt, utt_encoder_hidden)  # (batch_size, 1, UTT_HIDDEN)
 
         # Update Context Encoder
@@ -340,7 +326,7 @@ class HRED(nn.Module):
 
             # encoder_output = encoder_outputs[idx, :, :].unsqueeze(1)
 
-            decoder_input = torch.tensor([[BOS_token]]).to(self.device)
+            decoder_input = torch.tensor([[BOS_token]]).cuda()
 
             endnodes = []
             number_required = min((topk + 1), (topk - len(endnodes)))
@@ -408,17 +394,16 @@ class HRED(nn.Module):
 
 
 class seq2seq(nn.Module):
-    def __init__(self, device):
+    def __init__(self):
         super(seq2seq, self).__init__()
-        self.device = device
 
     def forward(self, X, Y, encoder, decoder, context, step_size, criterion, config):
         loss = 0
 
-        encoder_hidden = encoder.initHidden(step_size, self.device)
+        encoder_hidden = encoder.initHidden(step_size)
         encoder_output, encoder_hidden = encoder(X, encoder_hidden)
 
-        context_hidden = context.initHidden(step_size, self.device)
+        context_hidden = context.initHidden(step_size)
         context_output, context_hidden = context(encoder_output, context_hidden)
 
         decoder_hidden = context_hidden
@@ -435,20 +420,20 @@ class seq2seq(nn.Module):
 
     def predict(self, X, encoder, decoder, context, config, EOS_token, BOS_token):
         with torch.no_grad():
-            encoder_hidden = encoder.initHidden(1, self.device)
+            encoder_hidden = encoder.initHidden(1)
             encoder_output, _ = encoder(X, encoder_hidden)
 
-            context_hidden = context.initHidden(1, self.device)
+            context_hidden = context.initHidden(1)
             context_output, context_hidden = context(encoder_output, context_hidden)
             
             decoder_hidden = context_hidden
-            prev_words = torch.tensor([[BOS_token]]).to(self.device)
+            prev_words = torch.tensor([[BOS_token]]).cuda()
             pred_seq = []
             for _ in range(config['max_len']):
                 preds, decoder_hidden = decoder(prev_words, decoder_hidden)
                 _, topi = preds.topk(1)
                 pred_seq.append(topi.item())
-                prev_words = torch.tensor([[topi]]).to(self.device)
+                prev_words = torch.tensor([[topi]]).cuda()
                 if topi == EOS_token:
                     break
         return pred_seq

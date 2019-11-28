@@ -32,7 +32,7 @@ def interpreter(experiment):
     model = HRED(utt_vocab=utt_vocab, device=device,
                 utt_encoder=utt_encoder, utt_context=utt_context, utt_decoder=utt_decoder, config=config).to(device)
 
-    utt_context_hidden = utt_context.initHidden(1, device) if config['use_uttcontext'] else None
+    utt_context_hidden = utt_context.initHidden(1) if config['use_uttcontext'] else None
 
     print('ok, i\'m ready.')
 

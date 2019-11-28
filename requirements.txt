@@ -1,9 +1,10 @@
-torch==1.0.0
+torch>=1.0.0
 numpy
+gensim
 pyhocon
 argparse
 matplotlib
 seaborn
 sklearn
-pickle
 nltk
+transformers

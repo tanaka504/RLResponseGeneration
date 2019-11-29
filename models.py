@@ -416,9 +416,15 @@ class seq2seq(nn.Module):
             filtered_logits = self.top_k_top_p_filtering(logits=logits, top_k=self.config['top_k'],
                                                top_p=self.config['top_p'])
             probs = F.softmax(filtered_logits, dim=-1)
-            _, topi = logits.topk(1)
-            CE_loss += self.criterion(probs.view(-1, len(self.utt_vocab.word2id)), Y[:, j+1])
-            base_loss += self.criterion(logits.view(-1, len(self.utt_vocab.word2id)), Y[:, j+1])
+            _, base_topi = logits.topk(1)
+            next_token = torch.multinomial(probs, 1).squeeze(-1)
+            pred_seq.append(next_token)
+            base_seq.append(base_topi)
+            if self.config['RL']:
+                CE_loss += self.criterion(probs.view(-1, len(self.utt_vocab.word2id)), Y[:, j+1])
+            else:
+                base_loss += self.criterion(logits.view(-1, len(self.utt_vocab.word2id)), Y[:, j+1])
+
         if self.config['RL']:
             pred_seq = torch.stack(pred_seq)
             base_seq = torch.stack(base_seq)
@@ -486,7 +492,7 @@ class seq2seq(nn.Module):
                 break
         return pred_seq, decoder_hidden
 
-    def top_k_top_p_filtering(self, logits, top_k=0, top_p=0.0, filter_value=-float('Inf')):
+    def top_k_top_p_filtering(self, _logits, top_k=0, top_p=0.0, filter_value=-float('Inf')):
         """ Filter a distribution of logits using top-k and/or nucleus (top-p) filtering
             Args:
                 logits: logits distribution shape (vocabulary size)
@@ -495,6 +501,7 @@ class seq2seq(nn.Module):
                     Nucleus filtering is described in Holtzman et al. (http://arxiv.org/abs/1904.09751)
         """
         top_k = min(top_k, logits.size(-1))  # Safety check
+        logits = _logits.copy()
         if top_k > 0:
             # Remove all tokens with a probability less than the last token of the top-k
             indices_to_remove = logits < torch.topk(logits, top_k)[0][..., -1, None]
@@ -580,6 +587,4 @@ class seq2seq(nn.Module):
             decoded_batch.append(pred_seq)
 
         return decoded_batch[0], decoder_hidden
-
-
 

@@ -106,7 +106,9 @@ class UtteranceDecoder(nn.Module):
         if not tag is None:
             h = self.th(torch.cat((h, tag), dim=2))
         output, hidden = self.hh(h, hidden)
-        y_dist = self.ey(torch.tanh(self.he(output.squeeze(1))))
+        tmp = self.he(output.squeeze(1))
+        tmp = torch.tanh(tmp)
+        y_dist = self.ey(tmp)
         return y_dist, hidden, output
 
 

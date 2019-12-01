@@ -1,7 +1,5 @@
 from nn_blocks import *
-from queue import PriorityQueue
-import operator
-from nltk.translate.bleu_score import corpus_bleu, SmoothingFunction
+from utils import *
 
 
 class RL(nn.Module):
@@ -43,7 +41,7 @@ class RL(nn.Module):
         for j in range(len(Y_utt[0]) - 1):
             prev_words = Y_utt[:, j].unsqueeze(1)
             logits, decoder_hidden, _ = self.utt_decoder(prev_words, utt_dec_hidden)
-            filtered_logits = self.top_k_top_p_filtering(logits=logits, top_k=self.config['top_k'],
+            filtered_logits = self.top_k_top_p_filtering(_logits=logits, top_k=self.config['top_k'],
                                                          top_p=self.config['top_p'])
             probs = F.softmax(filtered_logits, dim=-1)
             _, base_topi = logits.topk(1)
@@ -78,22 +76,10 @@ class RL(nn.Module):
 
     def reward(self, hypothesis, reference, context):
         # TODO: Implement reward functions
-        r_bleu = self.calc_bleu(reference, hypothesis)
+        r_bleu = calc_bleu(reference, hypothesis)
         return r_bleu
 
-    def calc_bleu(self, refs, hyps):
-        # refs = [' '.join(list(map(str, ref))) for ref in refs]
-        # hyps = [' '.join(list(map(str, hyp))) for hyp in hyps]
-        # bleu = get_moses_multi_bleu(hyps, refs, lowercase=True)
-        # if bleu is None: bleu = 0.0
-        refs = [[list(map(str, ref))] for ref in refs]
-        hyps = [list(map(str, hyp)) for hyp in hyps]
-        try:
-            bleu = corpus_bleu(refs, hyps, smoothing_function=SmoothingFunction().method2)
-        except:
-            bleu = 1e-10
-        return bleu
-
+    
     def predict(self, X_utt, utt_context_hidden):
         with torch.no_grad():
             utt_decoder_hidden = self._encoding(X_utt=X_utt, utt_context_hidden=utt_context_hidden, step_size=1)
@@ -134,7 +120,7 @@ class RL(nn.Module):
         pred_seq = []
         for _ in range(self.config['max_len']):
             logits, decoder_hidden, _ = decoder(prev_words, decoder_hidden)
-            filtered_logits = self.top_k_top_p_filtering(logits=logits, top_k=self.config['top_k'], top_p=self.config['top_p'])
+            filtered_logits = self.top_k_top_p_filtering(_logits=logits, top_k=self.config['top_k'], top_p=self.config['top_p'])
             probs = F.softmax(filtered_logits, dim=-1)
             next_token = torch.multinomial(probs, 1)
             pred_seq.append(next_token)
@@ -143,7 +129,7 @@ class RL(nn.Module):
                 break
         return pred_seq, decoder_hidden
 
-    def top_k_top_p_filtering(self, logits, top_k=0, top_p=0.0, filter_value=-float('Inf')):
+    def top_k_top_p_filtering(self, _logits, top_k=0, top_p=0.0, filter_value=-float('Inf')):
         """ Filter a distribution of logits using top-k and/or nucleus (top-p) filtering
             Args:
                 logits: logits distribution shape (vocabulary size)
@@ -151,6 +137,7 @@ class RL(nn.Module):
                 top_p >0.0: keep the top tokens with cumulative probability >= top_p (nucleus filtering).
                     Nucleus filtering is described in Holtzman et al. (http://arxiv.org/abs/1904.09751)
         """
+        logits = _logits.clone()
         top_k = min(top_k, logits.size(-1))  # Safety check
         if top_k > 0:
             # Remove all tokens with a probability less than the last token of the top-k
@@ -413,7 +400,7 @@ class seq2seq(nn.Module):
         for j in range(len(Y[0]) - 1):
             prev_words = Y[:, j].unsqueeze(1)
             logits, decoder_hidden, decoder_output = self.decoder(prev_words, encoder_hidden)
-            filtered_logits = self.top_k_top_p_filtering(logits=logits, top_k=self.config['top_k'],
+            filtered_logits = self.top_k_top_p_filtering(_logits=logits, top_k=self.config['top_k'],
                                                top_p=self.config['top_p'])
             probs = F.softmax(filtered_logits, dim=-1)
             _, base_topi = logits.topk(1)
@@ -432,18 +419,19 @@ class seq2seq(nn.Module):
             base_seq = [[w[0] for w in s] for s in base_seq.transpose(0,1).data.tolist()]
             ref_seq = [s for s in Y.data.tolist()]
             context = [s for s in X.data.tolist()]
-            reward = 1
-            b = 0
+            reward = self.reward(hyp=pred_seq, ref=ref_seq, context=context)
+            b = self.reward(hyp=base_seq, ref=ref_seq, context=context)
             RL_loss = CE_loss * (reward - b)
             loss = CE_loss * self.config['lambda'] + RL_loss * (1 - self.config['lambda'])
             loss = loss.mean()
         else:
+            reward = 0
             loss = base_loss.mean()
         torch.nn.utils.clip_grad_norm_(self.parameters(), self.config['clip'])
 
         if self.training:
             loss.backward()
-        return loss.item()
+        return loss.item(), reward
 
     def predict(self, X, encoder, decoder, context, config, EOS_token, BOS_token):
         with torch.no_grad():
@@ -465,6 +453,9 @@ class seq2seq(nn.Module):
                     break
         return pred_seq
 
+    def reward(self, hyp, ref, context):
+        r_bleu = calc_bleu(ref, hyp)
+        return r_bleu
 
     def _greedy_decode(self, prev_words, decoder, decoder_hidden):
         EOS_token = self.utt_vocab.word2id['<EOS>']
@@ -483,7 +474,7 @@ class seq2seq(nn.Module):
         pred_seq = []
         for _ in range(self.config['max_len']):
             logits, decoder_hidden, _ = decoder(prev_words, decoder_hidden)
-            filtered_logits = self.top_k_top_p_filtering(logits=logits, top_k=self.config['top_k'], top_p=self.config['top_p'])
+            filtered_logits = self.top_k_top_p_filtering(_logits=logits, top_k=self.config['top_k'], top_p=self.config['top_p'])
             probs = F.softmax(filtered_logits, dim=-1)
             next_token = torch.multinomial(probs, 1)
             pred_seq.append(next_token)
@@ -500,8 +491,8 @@ class seq2seq(nn.Module):
                 top_p >0.0: keep the top tokens with cumulative probability >= top_p (nucleus filtering).
                     Nucleus filtering is described in Holtzman et al. (http://arxiv.org/abs/1904.09751)
         """
+        logits = _logits.clone()
         top_k = min(top_k, logits.size(-1))  # Safety check
-        logits = _logits.copy()
         if top_k > 0:
             # Remove all tokens with a probability less than the last token of the top-k
             indices_to_remove = logits < torch.topk(logits, top_k)[0][..., -1, None]

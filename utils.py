@@ -2,6 +2,7 @@ import os, re, json, math
 import matplotlib.pyplot as plt
 import torch
 from nltk import tokenize
+from nltk.translate.bleu_score import corpus_bleu, SmoothingFunction
 import pickle
 import pandas as pd
 import seaborn as sns
@@ -154,6 +155,16 @@ class MPMI:
             return 0
         else:
             return sum(sum(self.matrix[self.tag_idx[tag]][self.vocab.token2id[word]] for word in sentence if word in self.vocab.token2id and not self.matrix[self.tag_idx[tag]][self.vocab.token2id[word]] is None)/ len(sentence) for sentence in sentences) / len(sentences)
+
+def calc_bleu(refs, hyps):
+        refs = [[list(map(str, ref))] for ref in refs]
+        hyps = [list(map(str, hyp)) for hyp in hyps]
+        # try:
+        bleu = corpus_bleu(refs, hyps, smoothing_function=SmoothingFunction().method2)
+        # except:
+        #     bleu = 1e-10
+        return bleu
+
 
 def create_traindata(config, prefix='train'):
     if config['lang'] == 'en':

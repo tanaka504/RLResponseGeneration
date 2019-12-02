@@ -134,7 +134,7 @@ def train(experiment):
     else:
         da_pairs = None
 
-    (XOrdered, XMisOrdered, XTarget), (DAOrdered, DAMisOrdered, DATarget), Y = make_triple(utterance_pairs=utterance_pairs, da_pairs=da_pairs)
+    (XOrdered, XMisOrdered, XTarget), (DAOrdered, DAMisOrdered, DATarget), Y = make_triple(utterance_pairs=utterance_pairs, da_pairs=da_pairs, config=config)
 
     for e in range(config['EPOCH']):
         tmp_time = time.time()
@@ -170,7 +170,7 @@ def train(experiment):
             result = [0 if line < 0.5 else 1 for line in pred]
             train_acc.append(accuracy_score(y_true=y.data.tolist(), y_pred=result))
         print()
-        valid_loss = validation(experiment=experiment, XU_valid=XU_train, YU_valid=YU_train, XD_valid=XD_train, YD_valid=YD_train,
+        valid_loss = validation(XU_valid=XU_train, YU_valid=YU_train, XD_valid=XD_train, YD_valid=YD_train,
                                 model=predictor, utt_vocab=utt_vocab, config=config)
 
         def save_model(filename):
@@ -217,7 +217,7 @@ def train(experiment):
     print('Finish training | exec time: %.4f [sec]' % (time.time() - start))
 
 
-def validation(experiment, XU_valid, YU_valid, XD_valid, YD_valid, model, utt_vocab, config):
+def validation(XU_valid, YU_valid, XD_valid, YD_valid, model, utt_vocab, config):
     model.eval()
     indexes = [i for i in range(len(XU_valid))]
     random.shuffle(indexes)
@@ -235,7 +235,7 @@ def validation(experiment, XU_valid, YU_valid, XD_valid, YD_valid, model, utt_vo
         else:
             da_pairs = None
 
-        (Xordered, Xmisordered, Xtarget), (DAordered, DAmisordered, DAtarget), Y = make_triple(utterance_pairs, da_pairs)
+        (Xordered, Xmisordered, Xtarget), (DAordered, DAmisordered, DAtarget), Y = make_triple(utterance_pairs, da_pairs, config)
         Xordered = padding(Xordered, pad_idx=utt_vocab.word2id['<PAD>'])
         Xmisordered = padding(Xmisordered, pad_idx=utt_vocab.word2id['<PAD>'])
         Xtarget = padding(Xtarget, pad_idx=utt_vocab.word2id['<PAD>'])
@@ -248,7 +248,7 @@ def validation(experiment, XU_valid, YU_valid, XD_valid, YD_valid, model, utt_vo
         y = torch.tensor(Y, dtype=torch.float).cuda()
         loss, preds = model.forward(XOrdered=Xordered, XMisOrdered=Xmisordered, XTarget=Xtarget,
                                     DAOrdered=DAordered, DAMisOrdered=DAmisordered, DATarget=DAtarget,
-                                    Y=y, step_size=step_size*5, criterion=criterion)
+                                    Y=y, step_size=step_size*config['m'], criterion=criterion)
         result = [0 if line < 0.5 else 1 for line in preds]
         valid_acc.append(accuracy_score(y_true=y.data.tolist(), y_pred=result))
         k += step_size
@@ -297,7 +297,7 @@ def evaluate(experiment):
                 da_pairs = [[[XD, YD] for XD, YD in zip(XD_test[seq_idx], YD_test[seq_idx])] for seq_idx in batch_idx]
             else:
                 da_pairs = None
-            (Xordered, Xmisordered, Xtarget), (DAordered, DAmisordered, DAtarget), Y = make_triple(utterance_pairs, da_pairs)
+            (Xordered, Xmisordered, Xtarget), (DAordered, DAmisordered, DAtarget), Y = make_triple(utterance_pairs, da_pairs, config)
             Xordered = padding(Xordered, pad_idx=utt_vocab.word2id['<PAD>'])
             Xmisordered = padding(Xmisordered, pad_idx=utt_vocab.word2id['<PAD>'])
             Xtarget = padding(Xtarget, pad_idx=utt_vocab.word2id['<PAD>'])
@@ -316,15 +316,13 @@ def evaluate(experiment):
             else:
                 loss, preds = predictor.forward(XOrdered=Xordered, XMisOrdered=Xmisordered, XTarget=Xtarget,
                                             DAOrdered=DAordered, DAMisOrdered=DAmisordered, DATarget=DAtarget,
-                                            Y=y, step_size=step_size*5, criterion=criterion)
+                                            Y=y, step_size=step_size*config['m'], criterion=criterion)
             result = [0 if line < 0.5 else 1 for line in preds]
             y_preds.extend(result)
             y_trues.extend(y.data.tolist())
             k += step_size
         acc.append(accuracy_score(y_pred=y_preds, y_true=y_trues))
     acc = np.array(acc)
-    # t_dist = stats.t(loc=acc.mean(), scale=np.sqrt(acc.var()/len(acc)), df=len(acc)-1)
-    # bottom, up = t_dist.interval(alpha=0.95)
     print('Avg. of Accuracy: {} +- {}'.format(acc.mean(), conf_interval(acc)))
 
 
@@ -337,7 +335,7 @@ def conf_interval(X):
 def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-def make_triple(utterance_pairs, da_pairs=None):
+def make_triple(utterance_pairs, da_pairs=None, config={'m':5}):
     Xordered = []
     Xmisordered = []
     Xtarget = []
@@ -350,7 +348,7 @@ def make_triple(utterance_pairs, da_pairs=None):
             da_seq = da_pairs[bidx]
         else:
             da_seq = None
-        for _ in range(5):
+        for _ in range(config['m']):
             (ordered, misordered, target), (da_ordered, da_misordered, da_target), label = sample_triple(utterance_pairs[bidx], da_seq)
             Xordered.append(ordered)
             Xmisordered.append(misordered)
@@ -367,29 +365,6 @@ def make_triple(utterance_pairs, da_pairs=None):
     #     da_ordered = torch.tensor(DAordered).cuda()
     #     da_misordered = torch.tensor(DAmisordered).cuda()
     #     da_target = torch.tensor(DAtarget).cuda()
-    return (Xordered, Xmisordered, Xtarget), (DAordered, DAmisordered, DAtarget), Y
-
-def baseline_triples(utterance_pairs, da_pairs=None):
-    Xordered = []
-    Xmisordered = []
-    Xtarget = []
-    DAordered = []
-    DAmisordered = []
-    DAtarget = []
-    Y = []
-    for bidx in range(len(utterance_pairs)):
-        if not da_pairs is None:
-            da_seq = da_pairs[bidx]
-            DAordered.append(da_seq[:-1])
-        else:
-            da_seq = None
-        (ordered, misordered, target), (da_ordered, da_misordered, da_target), label = sample_triple(utterance_pairs[bidx], da_seq)
-        Xordered.append(utterance_pairs[bidx][:-1])
-        Xmisordered.append(misordered)
-        Xtarget.append(target)
-        DAmisordered.append(da_misordered)
-        DAtarget.append(da_target)
-        Y.append(label)
     return (Xordered, Xmisordered, Xtarget), (DAordered, DAmisordered, DAtarget), Y
 
 def sample_triple(pairs, da_pairs):

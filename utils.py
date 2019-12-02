@@ -12,6 +12,7 @@ import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 from collections import Counter
 
+
 EOS_token = '<EOS>'
 BOS_token = '<BOS>'
 parallel_pattern = re.compile(r'^(.+?)(\t)(.+?)$')
@@ -156,6 +157,7 @@ class MPMI:
         else:
             return sum(sum(self.matrix[self.tag_idx[tag]][self.vocab.token2id[word]] for word in sentence if word in self.vocab.token2id and not self.matrix[self.tag_idx[tag]][self.vocab.token2id[word]] is None)/ len(sentence) for sentence in sentences) / len(sentences)
 
+
 def calc_bleu(refs, hyps):
         refs = [[list(map(str, ref))] for ref in refs]
         hyps = [list(map(str, hyp)) for hyp in hyps]
@@ -168,8 +170,8 @@ def calc_bleu(refs, hyps):
 
 def create_traindata(config, prefix='train'):
     if config['lang'] == 'en':
-        # file_pattern = re.compile(r'^sw_{}_([0-9]*?)\.jsonlines$'.format(prefix))
-        file_pattern = re.compile(r'^OpenSubtitles\_{}\_([0-9]*?)\.jsonlines$'.format(prefix))
+        file_pattern = re.compile(r'^sw_{}_([0-9]*?)\.jsonlines$'.format(prefix))
+        # file_pattern = re.compile(r'^OpenSubtitles\_{}\_([0-9]*?)\.jsonlines$'.format(prefix))
     elif config['lang'] == 'ja':
         file_pattern = re.compile(r'^data([0-9]*?)\_{}\_([0-9]*?)\.jsonlines$'.format(prefix))
     files = [f for f in os.listdir(config['train_path']) if file_pattern.match(f)]
@@ -217,14 +219,26 @@ def en_preprocess(utterance):
     return tokenize.word_tokenize(utterance.lower())
 
 def NLILoader(config, prefix='train'):
-    tag2id = {'positive': 0, 'neutral': 1, 'negative': 2}
-    jsondata = json.load(open('./data/corpus/dnli/dialogue_nli/dialogue_nli_{}.jsonl'.format(prefix)))
-    X = []
-    Y = []
-    for line in jsondata:
-        x1 = line['sentence1']
-        x2 = line['sentence2']
-        label = line['label']
-        X.append('[CLS]' + x1 + '[SEP]' + x2 + '[SEP]')
-        Y.append(tag2id[label])
+    if config['lang'] == 'en':
+        tag2id = {'positive': 0, 'neutral': 1, 'negative': 2}
+        jsondata = json.load(open('./data/corpus/dnli/dialogue_nli/dialogue_nli_{}.jsonl'.format(prefix)))
+        X = []
+        Y = []
+        for line in jsondata:
+            x1 = line['sentence1']
+            x2 = line['sentence2']
+            label = line['label']
+            X.append((x1, x2))
+            Y.append(tag2id[label])
+    else:
+        tag2id = {'I': 0, 'B': 1, 'F': 2, 'C': 3}
+        jsondata = json.load(open('./data/corpus/RITE/RITE2_JA_{}_mc.json'.format(prefix)))
+        X = []
+        Y = []
+        for line in jsondata:
+            x1 = line['t1']
+            x2 = line['t2']
+            label = line['label']
+            X.append((x1, x2))
+            Y.append(tag2id[label])
     return X, Y

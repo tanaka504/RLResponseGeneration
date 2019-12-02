@@ -6,15 +6,18 @@ import time, random
 from transformers import *
 from utils import *
 from sklearn.metrics import accuracy_score
+from pyknp import Juman
+
 
 class Classifier(nn.Module):
-    def __init__(self, encoder_hidden,middle_layer_size):
+    def __init__(self, encoder_hidden, middle_layer_size, output_size):
         super(Classifier, self).__init__()
         self.encoder_hidden = encoder_hidden
         self.middle_layer_size = middle_layer_size
+        self.output_size = output_size
 
         self.hm = nn.Linear(self.encoder_hidden, self.middle_layer_size)
-        self.my = nn.Linear(self.middle_layer_size, 3)
+        self.my = nn.Linear(self.middle_layer_size, self.output_size)
 
     def forward(self, X):
         return self.my(self.hm(X))
@@ -24,10 +27,16 @@ class NLI(nn.Module):
         super(NLI, self).__init__()
         self.classifier = classifier
         self.config = config
-        self.tokenizer = BertTokenizer.from_pretrained(config['BERT_MODEL'])
-        self.encoder = BertForSequenceClassification.from_pretrained(config['BERT_MODEL'],
-                                                                           output_hidden_states=True,
-                                                                           output_attentions=True)
+        if self.config['lang'] == 'en':
+            self.tokenizer = BertTokenizer.from_pretrained(config['BERT_MODEL'])
+            self.encoder = BertForSequenceClassification.from_pretrained(config['BERT_MODEL'],
+                                                                               output_hidden_states=True,
+                                                                               output_attentions=True)
+        else:
+            self.tokenizer = BertTokenizer('./data/pretrain_model/Japanese_L-12_H-768_A-12_E-30_BPE_WWM/vocab.txt', do_lower_case=False, do_basic_tokenize=False)
+            self.encoder = BertForSequenceClassification.from_pretrained('./data/pretrain_model/Japanese_L-12_H-768_A-12_E-30_BPE_WWM/',
+                                                                         output_hidden_states=True,
+                                                                         output_attentions=True)
         self.criterion = criterion
     def forward(self, X, Y):
         x_hidden, x_attentions = self.encoder(X)[-2:]
@@ -45,6 +54,14 @@ class NLI(nn.Module):
         pred = self.classifier(output)
         return pred.data.tolist()
 
+class JumanTokenizer:
+    def __init__(self):
+        self.juman = Juman()
+
+    def tokenize(self, text):
+        result = self.juman.analysis(text)
+        return [mrph.midasi for mrph in result.mrph_list()]
+
 def train(experiment):
     start = time.time()
     config = initialize_env(experiment)
@@ -53,7 +70,8 @@ def train(experiment):
     criterion = nn.CrossEntropyLoss()
     lr = config['lr']
     batch_size = config['BATCH_SIZE']
-    classifier = Classifier(encoder_hidden=768, middle_layer_size=config['NLI_MIDDLE_LAYER']).cuda()
+    output_size = 3 if config['lang'] == 'en' else 4
+    classifier = Classifier(encoder_hidden=768, middle_layer_size=config['NLI_MIDDLE_LAYER'], output_size=output_size).cuda()
     model = NLI(classifier=classifier, criterion=criterion, config=config).cuda()
     model_opt = optim.Adam(model.parameters(), lr=lr)
     _valid_loss = None
@@ -74,7 +92,7 @@ def train(experiment):
             model_opt.zero_grad()
             x = [X[i] for i in batch_idx]
             y = [Y[i] for i in batch_idx]
-            x = string2tensor(model.tokenizer, list(x))
+            x = string2tensor(model.tokenizer, x, config)
             y = torch.tensor(y).cuda()
             loss, pred = model(X=x, Y=y)
             preds = torch.argmax(pred, dim=1).data.tolist()
@@ -126,7 +144,7 @@ def validation(model, X, Y, config):
         batch_idx = indexes[k: k + step_size]
         x = [X[i] for i in batch_idx]
         y = [Y[i] for i in batch_idx]
-        x = string2tensor(model.tokenizer, x)
+        x = string2tensor(model.tokenizer, x, config)
         y = torch.tensor(y).cuda()
         loss, pred = model(X=x, Y=y)
         preds = torch.argmax(pred, dim=1).data.tolist()
@@ -142,7 +160,8 @@ def evaluate(experiment):
     X, Y = NLILoader(config=config, prefix='test')
     criterion = nn.CrossEntropyLoss()
     batch_size = config['BATCH_SIZE']
-    classifier = Classifier(encoder_hidden=768, middle_layer_size=config['NLI_MIDDLE_LAYER']).cuda()
+    output_size = 3 if config['lang'] == 'en' else 4
+    classifier = Classifier(encoder_hidden=768, middle_layer_size=config['NLI_MIDDLE_LAYER'], output_size=output_size).cuda()
     model = NLI(classifier=classifier, criterion=criterion, config=config).cuda()
     model.load_state_dict(torch.load(os.path.join(config['log_dir'], 'statevalidbest.model')))
     indexes = [i for i in range(X)]
@@ -155,7 +174,7 @@ def evaluate(experiment):
         batch_idx = indexes[k: k+step_size]
         x = [X[i] for i in batch_idx]
         y = [Y[i] for i in batch_idx]
-        x = string2tensor(model.tokenizer, list(x))
+        x = string2tensor(model.tokenizer, x, config)
         y = torch.tensor(y).cuda()
         loss, pred = model(X=x, Y=y)
         preds = torch.argmax(pred, dim=1).data.tolist()
@@ -165,14 +184,31 @@ def evaluate(experiment):
     print('Avg. acc.: ', np.mean(acc))
 
 
-def string2tensor(tokenizer, X):
-    max_seq_len = max(len(batch) for batch in X)
+def string2tensor(tokenizer, X, config):
+    # Tokenize
+    if config['lang'] == 'ja': juman_tokenizer = JumanTokenizer()
+    X_tensor = []
     for bidx in range(len(X)):
-        x_seq = tokenizer.encode(X[bidx])
-        pad_len = max_seq_len - len(x_seq)
-        X[bidx] = x_seq + [0 for _ in range(pad_len)]
-        assert len(X[bidx]) == max_seq_len, '{}, {}'.format(len(X[bidx]), max_seq_len)
-    return torch.tensor(X).cuda()
+        x1, x2 = X[bidx]
+        if config['lang'] == 'en':
+            tokens1 = tokenizer.tokenize(x1)
+            tokens2 = tokenizer.tokenize(x2)
+        else:
+            x1.translate(str.maketrans({chr(0x0021 + i): chr(0xFF01 + i) for i in range(94)}))
+            x2.translate(str.maketrans({chr(0x0021 + i): chr(0xFF01 + i) for i in range(94)}))
+            x1 = re.sub(r'\s', '　', x1)
+            x2 = re.sub(r'\s', '　', x2)
+            tokens1 = tokenizer.tokenize(' '.join(juman_tokenizer.tokenize(x1)))
+            tokens2 = tokenizer.tokenize(' '.join(juman_tokenizer.tokenize(x2)))
+        tokens_tensor = tokenizer.convert_tokens_to_ids(['[CLS]'] + tokens1 + ['[SEP]'] + tokens2 + ['[SEP]'])
+        X_tensor.append(tokens_tensor)
+    # Padding
+    max_seq_len = max(len(batch) for batch in X_tensor)
+    for bidx in range(len(X_tensor)):
+        pad_len = max_seq_len - len(X_tensor[bidx])
+        X_tensor[bidx] = X_tensor[bidx] + [0 for _ in range(pad_len)]
+        assert len(X_tensor[bidx]) == max_seq_len, '{}, {}'.format(len(X_tensor[bidx]), max_seq_len)
+    return torch.tensor(X_tensor).cuda()
 
 if __name__ == '__main__':
     args = parse()

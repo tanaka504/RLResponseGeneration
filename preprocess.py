@@ -46,8 +46,12 @@ def FileIter():
             print('\rFinish preprocess {}/{} files'.format(i, len(files)), end='')
         print()
 
-def test1file():
-    preprocess('./data/swda/sw00utt', 'sw_0002_4330.utt.txt')
+def DNLIPreprocess(prefix):
+    jsondata = json.load(open('./data/corpus/dnli/dialogue_nli/dialogue_nli_{}.jsonl'.format(prefix)))
+    f = open('./data/corpus/dnli/dialogue_nli_{}.tsv'.format(prefix), 'w')
+    f.write('\n'.join(['{}\t{}\t{}'.format(line['sentence1'], line['sentence2'], line['label']) for line in jsondata]))
+    f.close()
 
 if __name__ == '__main__':
-    FileIter()
+    for prefix in ['train', 'dev', 'test']:
+        DNLIPreprocess(prefix)

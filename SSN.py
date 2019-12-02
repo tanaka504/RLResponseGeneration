@@ -297,10 +297,7 @@ def evaluate(experiment):
                 da_pairs = [[[XD, YD] for XD, YD in zip(XD_test[seq_idx], YD_test[seq_idx])] for seq_idx in batch_idx]
             else:
                 da_pairs = None
-            if experiment == 'baseline':
-                (Xordered, Xmisordered, Xtarget), (DAordered, DAmisordered, DAtarget), Y = baseline_triples(utterance_pairs, da_pairs)
-            else:
-                (Xordered, Xmisordered, Xtarget), (DAordered, DAmisordered, DAtarget), Y = make_triple(utterance_pairs, da_pairs)
+            (Xordered, Xmisordered, Xtarget), (DAordered, DAmisordered, DAtarget), Y = make_triple(utterance_pairs, da_pairs)
             Xordered = padding(Xordered, pad_idx=utt_vocab.word2id['<PAD>'])
             Xmisordered = padding(Xmisordered, pad_idx=utt_vocab.word2id['<PAD>'])
             Xtarget = padding(Xtarget, pad_idx=utt_vocab.word2id['<PAD>'])
@@ -438,5 +435,5 @@ if __name__ == '__main__':
     global args
     args = parse()
 
-    train(args.expr)
+    # train(args.expr)
     evaluate(args.expr)

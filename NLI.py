@@ -40,10 +40,10 @@ class NLI(nn.Module):
 
     def predict(self, X):
         x_hidden, x_attentions = self.encoder(X)[-2:]
-        x_hidden = [-1]
+        x_hidden = x_hidden[-1]
         output = x_hidden[:, 0, :]
         pred = self.classifier(output)
-        return pred
+        return pred.data.tolist()
 
 def train(experiment):
     start = time.time()

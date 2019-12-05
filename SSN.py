@@ -300,15 +300,9 @@ def evaluate(experiment):
             else:
                 DAordered, DAmisordered, DAtarget = None, None, None
             y = torch.tensor(Y, dtype=torch.float).cuda()
-            if experiment == 'baseline':
-                loss, preds = predictor.baseline(XOrdered=Xordered, XTarget=Xtarget,
-                                             DAOrdered=DAordered, DATarget=DAtarget,
-                                             Y=y, step_size=step_size, criterion=criterion)
-
-            else:
-                loss, preds = predictor.forward(XOrdered=Xordered, XMisOrdered=Xmisordered, XTarget=Xtarget,
-                                            DAOrdered=DAordered, DAMisOrdered=DAmisordered, DATarget=DAtarget,
-                                            Y=y, step_size=step_size*config['m'])
+            loss, preds = predictor.forward(XOrdered=Xordered, XMisOrdered=Xmisordered, XTarget=Xtarget,
+                                        DAOrdered=DAordered, DAMisOrdered=DAmisordered, DATarget=DAtarget,
+                                        Y=y, step_size=step_size*config['m'])
             result = [0 if line < 0.5 else 1 for line in preds]
             y_preds.extend(result)
             y_trues.extend(y.data.tolist())

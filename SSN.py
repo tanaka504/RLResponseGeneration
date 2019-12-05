@@ -86,8 +86,9 @@ class OrderPredictor(nn.Module):
 
 def train(experiment):
     config = initialize_env(experiment)
+    valid = 'valid' if config['lang'] == 'en' else 'dev'
     XD_train, YD_train, XU_train, YU_train = create_traindata(config=config, prefix='train')
-    XD_valid, YD_valid, XU_valid, YU_valid = create_traindata(config=config, prefix='valid')
+    XD_valid, YD_valid, XU_valid, YU_valid = create_traindata(config=config, prefix=valid)
     if os.path.exists(os.path.join(config['log_root'], 'da_vocab.dict')):
         da_vocab = da_Vocab(config, create_vocab=False)
         utt_vocab = utt_Vocab(config, create_vocab=False)
@@ -343,14 +344,6 @@ def make_triple(utterance_pairs, da_pairs=None, config={'m':5}):
             DAmisordered.append(da_misordered)
             DAtarget.append(da_target)
             Y.append(label)
-    # padding
-    # Xordered = padding(Xordered, utt_vocab.word2id['<PAD>'])
-    # Xmisordered = padding(Xmisordered, utt_vocab.word2id['<PAD>'])
-    # Xtarget = padding(Xtarget, utt_vocab.word2id['<PAD>'])
-    # if not da_pairs is None:
-    #     da_ordered = torch.tensor(DAordered).cuda()
-    #     da_misordered = torch.tensor(DAmisordered).cuda()
-    #     da_target = torch.tensor(DAtarget).cuda()
     return (Xordered, Xmisordered, Xtarget), (DAordered, DAmisordered, DAtarget), Y
 
 def sample_triple(pairs, da_pairs):

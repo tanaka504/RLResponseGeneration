@@ -9,12 +9,11 @@ from pyknp import Juman
 from torch.utils.data import DataLoader, SequentialSampler, TensorDataset
 from torch.utils.data.distributed import DistributedSampler
 from transformers import glue_convert_examples_to_features as convert_examples_to_features
-from transformers import glue_output_modes as output_modes
 from transformers import glue_compute_metrics as compute_metrics
-from transformers import glue_processors as processors
 from tqdm import tqdm
 from transformers import BertConfig, BertForSequenceClassification, BertTokenizer
 from transformers.data.processors.utils import InputExample
+from NLI_processor import processors, output_modes
 
 
 class NLI:
@@ -33,7 +32,7 @@ class NLI:
         eval_outputs_dirs = (output_dir,)
 
         for eval_task, eval_output_dir in zip(eval_task_names, eval_outputs_dirs):
-            eval_dataset = self.load_and_cache_examples(x1, x2, eval_task, self.tokenizer, evaluate=True)
+            eval_dataset = self.load_and_cache_examples(x1, x2, eval_task, self.tokenizer)
 
             if not os.path.exists(eval_output_dir):
                 os.makedirs(eval_output_dir)
@@ -68,7 +67,7 @@ class NLI:
                     out_label_ids = np.append(out_label_ids, inputs['labels'].detach().cpu().numpy(), axis=0)
         return preds
 
-    def load_and_cache_examples(self, x1, x2, task, tokenizer, evaluate=True):
+    def load_and_cache_examples(self, x1, x2, task, tokenizer):
         processor = processors[task]()
         output_mode = output_modes[task]
         # Load data features from cache or dataset file

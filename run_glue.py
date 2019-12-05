@@ -75,44 +75,7 @@ MODEL_CLASSES = {
     'albert': (AlbertConfig, AlbertForSequenceClassification, AlbertTokenizer)
 }
 
-class DNLIProcessor(DataProcessor):
-    """Processor for the MultiNLI data set (GLUE version)."""
 
-    def get_example_from_tensor_dict(self, tensor_dict):
-        """See base class."""
-        return InputExample(tensor_dict['idx'].numpy(),
-                            tensor_dict['premise'].numpy().decode('utf-8'),
-                            tensor_dict['hypothesis'].numpy().decode('utf-8'),
-                            str(tensor_dict['label'].numpy()))
-
-    def get_train_examples(self, data_dir):
-        """See base class."""
-        return self._create_examples(
-            self._read_tsv(os.path.join(data_dir, "dialogue_nli_train.tsv")), "train")
-
-    def get_dev_examples(self, data_dir):
-        """See base class."""
-        return self._create_examples(
-            self._read_tsv(os.path.join(data_dir, "dialogue_nli_dev.tsv")),
-            "dev_matched")
-
-    def get_labels(self):
-        """See base class."""
-        return ["positive", "negative", "neutral"]
-
-    def _create_examples(self, lines, set_type):
-        """Creates examples for the training and dev sets."""
-        examples = []
-        for (i, line) in enumerate(lines):
-            if i == 0:
-                continue
-            guid = "%s-%s" % (set_type, line[0])
-            text_a = line[0]
-            text_b = line[1]
-            label = line[2]
-            examples.append(
-                InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label))
-        return examples
 
 def set_seed(args):
     random.seed(args.seed)
@@ -279,6 +242,7 @@ def evaluate(args, model, tokenizer, prefix=""):
         for batch in tqdm(eval_dataloader, desc="Evaluating"):
             model.eval()
             batch = tuple(t.to(args.device) for t in batch)
+            # batch: (all_input_ids, all_attention_mask, all_token_type_ids, all_labels)
 
             with torch.no_grad():
                 inputs = {'input_ids':      batch[0],
@@ -320,7 +284,7 @@ def load_and_cache_examples(args, task, tokenizer, evaluate=False):
     if args.local_rank not in [-1, 0] and not evaluate:
         torch.distributed.barrier()  # Make sure only the first process in distributed training process the dataset, and the others will use the cache
 
-    processor = DNLIProcessor()
+    processor = processors[task]()
     output_mode = output_modes[task]
     # Load data features from cache or dataset file
     cached_features_file = os.path.join(args.data_dir, 'cached_{}_{}_{}_{}'.format(
@@ -338,6 +302,8 @@ def load_and_cache_examples(args, task, tokenizer, evaluate=False):
             # HACK(label indices are swapped in RoBERTa pretrained model)
             label_list[1], label_list[2] = label_list[2], label_list[1] 
         examples = processor.get_dev_examples(args.data_dir) if evaluate else processor.get_train_examples(args.data_dir)
+
+
         features = convert_examples_to_features(examples,
                                                 tokenizer,
                                                 label_list=label_list,
@@ -373,11 +339,11 @@ def main():
     ## Required parameters
     parser.add_argument("--data_dir", default='./data/corpus/dnli/', type=str, required=False,
                         help="The input data dir. Should contain the .tsv files (or other data files) for the task.")
-    parser.add_argument("--model_type", default=None, type=str, required=True,
+    parser.add_argument("--model_type", default='bert', type=str, required=False,
                         help="Model type selected in the list: " + ", ".join(MODEL_CLASSES.keys()))
-    parser.add_argument("--model_name_or_path", default=None, type=str, required=True,
+    parser.add_argument("--model_name_or_path", default='bert-base-uncased', type=str, required=False,
                         help="Path to pre-trained model or shortcut name selected in the list: " + ", ".join(ALL_MODELS))
-    parser.add_argument("--task_name", default='mnli', type=str, required=False,
+    parser.add_argument("--task_name", default='dnli', type=str, required=False,
                         help="The name of the task to train selected in the list: " + ", ".join(processors.keys()))
     parser.add_argument("--output_dir", default=None, type=str, required=True,
                         help="The output directory where the model predictions and checkpoints will be written.")

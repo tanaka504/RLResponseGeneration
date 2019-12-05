@@ -14,17 +14,18 @@ from pprint import pprint
 
 class OrderPredictor(nn.Module):
     def __init__(self, utterance_pair_encoder, da_pair_encoder,
-                 order_reasoning_layer, classifier, config):
+                 order_reasoning_layer, classifier, criterion, config):
         super(OrderPredictor, self).__init__()
         self.utterance_pair_encoder = utterance_pair_encoder
         self.da_pair_encoder = da_pair_encoder
         self.order_reasoning_layer = order_reasoning_layer
         self.classifier = classifier
+        self.criterion = criterion
         self.config = config
 
     def forward(self, XOrdered, XMisOrdered, XTarget,
                 DAOrdered, DAMisOrdered, DATarget,
-                Y, step_size, criterion):
+                Y, step_size):
         """
         :param XOrdered: list of concated utterance pair tensors (3, batch_size, seq_len)
         :param XMisOrdered: list of concated utterance pair tensors (3, batch_size, seq_len)
@@ -75,7 +76,7 @@ class OrderPredictor(nn.Module):
 
         pred = self.classifier(output, da_output).squeeze(1)
         Y = Y.squeeze(1)
-        loss = criterion(pred, Y)
+        loss = self.criterion(pred, Y)
         torch.nn.utils.clip_grad_norm_(self.parameters(), self.config['clip'])
         if self.training:
             loss.backward()
@@ -116,10 +117,9 @@ def train(experiment):
     classifier = Classifier(hidden_size=config['SSN_REASONING_HIDDEN'], middle_layer_size=config['SSN_MIDDLE_LAYER'], da_hidden_size=config['SSN_DA_HIDDEN'])
 
     predictor = OrderPredictor(utterance_pair_encoder=utterance_pair_encoder, order_reasoning_layer=order_reasoning_layer,
-                               da_pair_encoder=da_pair_encoder, classifier=classifier, config=config).cuda()
+                               da_pair_encoder=da_pair_encoder, classifier=classifier, criterion=nn.BCELoss(), config=config).cuda()
     model_opt = optim.Adam(predictor.parameters(), lr=lr, weight_decay=1e-5)
     print('total parameters: ', count_parameters(predictor))
-    criterion = nn.BCELoss()
     
     print('--- Start Training ---')
     start = time.time()
@@ -162,7 +162,7 @@ def train(experiment):
             y = torch.tensor([Y[i] for i in batch_idx], dtype=torch.float).cuda()
             loss, pred = predictor(XOrdered=Xordered, XMisOrdered=Xmisordered, XTarget=Xtarget,
                                    DAOrdered=DAordered, DAMisOrdered=DAmisordered, DATarget=DAtarget,
-                                   Y=y, step_size=step_size, criterion=criterion)
+                                   Y=y, step_size=step_size)
             print_total_loss += loss
             model_opt.step()
             k += step_size
@@ -170,23 +170,19 @@ def train(experiment):
             result = [0 if line < 0.5 else 1 for line in pred]
             train_acc.append(accuracy_score(y_true=y.data.tolist(), y_pred=result))
         print()
-        valid_loss = validation(XU_valid=XU_train, YU_valid=YU_train, XD_valid=XD_train, YD_valid=YD_train,
+        valid_loss, valid_acc = validation(XU_valid=XU_train, YU_valid=YU_train, XD_valid=XD_train, YD_valid=YD_train,
                                 model=predictor, utt_vocab=utt_vocab, config=config)
 
         def save_model(filename):
-            torch.save(utterance_pair_encoder.state_dict(), os.path.join(config['log_dir'], 'utt_pair_enc_state{}.model'.format(filename)))
-            torch.save(order_reasoning_layer.state_dict(), os.path.join(config['log_dir'], 'ord_rsn_state{}.model'.format(filename)))
-            torch.save(classifier.state_dict(), os.path.join(config['log_dir'], 'cls_state{}.model'.format(filename)))
-            if config['use_da']:
-                torch.save(da_pair_encoder.state_dict(), os.path.join(config['log_dir'], 'da_pair_enc_state{}.model'.format(filename)))
+            torch.save(predictor.state_dict(), os.path.join(config['log_dir'], 'orderpred_state{}.model'.format(filename)))
 
         if _valid_loss is None:
             save_model('validbest')
-            _valid_loss = valid_loss
+            _valid_loss = valid_acc
         else:
-            if _valid_loss > valid_loss:
+            if _valid_loss > valid_acc:
                 save_model('validbest')
-                _valid_loss = valid_loss
+                _valid_loss = valid_acc
                 print('valid loss update, save model')
 
         if _train_loss is None:
@@ -221,7 +217,6 @@ def validation(XU_valid, YU_valid, XD_valid, YD_valid, model, utt_vocab, config)
     model.eval()
     indexes = [i for i in range(len(XU_valid))]
     random.shuffle(indexes)
-    criterion = nn.BCELoss()
     k = 0
     total_loss = 0
     valid_acc = []
@@ -248,13 +243,13 @@ def validation(XU_valid, YU_valid, XD_valid, YD_valid, model, utt_vocab, config)
         y = torch.tensor(Y, dtype=torch.float).cuda()
         loss, preds = model.forward(XOrdered=Xordered, XMisOrdered=Xmisordered, XTarget=Xtarget,
                                     DAOrdered=DAordered, DAMisOrdered=DAmisordered, DATarget=DAtarget,
-                                    Y=y, step_size=step_size*config['m'], criterion=criterion)
+                                    Y=y, step_size=step_size*config['m'])
         result = [0 if line < 0.5 else 1 for line in preds]
         valid_acc.append(accuracy_score(y_true=y.data.tolist(), y_pred=result))
         k += step_size
         total_loss += loss
     print('avg. of valid acc:\t{}'.format(np.mean(valid_acc)))
-    return total_loss
+    return total_loss, np.mean(valid_acc)
 
 
 def evaluate(experiment):
@@ -267,28 +262,25 @@ def evaluate(experiment):
 
     utterance_pair_encoder = UtteranceEncoder(utt_input_size=len(utt_vocab.word2id), embed_size=config['SSN_EMBED'],
                                               utterance_hidden=config['SSN_ENC_HIDDEN'], padding_idx=utt_vocab.word2id['<PAD>']).cuda()
-    utterance_pair_encoder.load_state_dict(torch.load(os.path.join(config['log_dir'], 'utt_pair_enc_statevalidbest.model')))
     if config['use_da']:
         da_pair_encoder = DAPairEncoder(da_hidden_size=config['SSN_DA_HIDDEN'], da_embed_size=config['SSN_DA_EMBED'], da_vocab_size=len(da_vocab.word2id)).cuda()
-        da_pair_encoder.load_state_dict(torch.load(os.path.join(config['log_dir'], 'da_pair_enc_statevalidbest.model')))
     else:
         da_pair_encoder = None
     order_reasoning_layer = OrderReasoningLayer(encoder_hidden_size=config['SSN_ENC_HIDDEN'], hidden_size=config['SSN_REASONING_HIDDEN'],
                                                 da_hidden_size=config['SSN_DA_HIDDEN']).cuda()
     classifier = Classifier(hidden_size=config['SSN_REASONING_HIDDEN'], middle_layer_size=config['SSN_MIDDLE_LAYER'], da_hidden_size=config['SSN_DA_HIDDEN'])
     order_reasoning_layer.load_state_dict(torch.load(os.path.join(config['log_dir'], 'ord_rsn_statevalidbest.model')))
-    classifier.load_state_dict(torch.load(os.path.join(config['log_dir'], 'cls_statevalidbest.model')))
     predictor = OrderPredictor(utterance_pair_encoder=utterance_pair_encoder, order_reasoning_layer=order_reasoning_layer,
-                               da_pair_encoder=da_pair_encoder, classifier=classifier, config=config).cuda()
+                               da_pair_encoder=da_pair_encoder, classifier=classifier, criterion=nn.BCELoss(), config=config).cuda()
+    predictor.load_state_dict(torch.load(os.path.join(config['log_dir'], 'orderpred_statevalidbest.model')))
 
-    criterion = nn.BCELoss()
     predictor.eval()
     k = 0
-    y_preds = []
-    y_trues = []
     acc = []
     indexes = [i for i in range(len(XU_test))]
     for _ in range(5):
+        y_preds = []
+        y_trues = []
         while k < len(indexes):
             step_size = min(config['BATCH_SIZE'], len(indexes) - k)
             batch_idx = indexes[k : k + step_size]
@@ -316,7 +308,7 @@ def evaluate(experiment):
             else:
                 loss, preds = predictor.forward(XOrdered=Xordered, XMisOrdered=Xmisordered, XTarget=Xtarget,
                                             DAOrdered=DAordered, DAMisOrdered=DAmisordered, DATarget=DAtarget,
-                                            Y=y, step_size=step_size*config['m'], criterion=criterion)
+                                            Y=y, step_size=step_size*config['m'])
             result = [0 if line < 0.5 else 1 for line in preds]
             y_preds.extend(result)
             y_trues.extend(y.data.tolist())

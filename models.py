@@ -1,5 +1,8 @@
 from nn_blocks import *
 from utils import *
+import operator
+from queue import PriorityQueue
+
 
 
 class RL(nn.Module):
@@ -381,10 +384,11 @@ class HRED(nn.Module):
 
 
 class seq2seq(nn.Module):
-    def __init__(self, encoder, decoder, criterion, utt_vocab, config):
+    def __init__(self, encoder, decoder, criterion, src_vocab, tgt_vocab, config):
         super(seq2seq, self).__init__()
         self.criterion = criterion
-        self.utt_vocab = utt_vocab
+        self.src_vocab = src_vocab
+        self.tgt_vocab = tgt_vocab
         self.encoder = encoder
         self.decoder = decoder
         self.config = config
@@ -408,9 +412,9 @@ class seq2seq(nn.Module):
             pred_seq.append(next_token)
             base_seq.append(base_topi)
             if self.config['RL']:
-                CE_loss += self.criterion(probs.view(-1, len(self.utt_vocab.word2id)), Y[:, j+1])
+                CE_loss += self.criterion(probs.view(-1, len(self.tgt_vocab.word2id)), Y[:, j+1])
             else:
-                base_loss += self.criterion(logits.view(-1, len(self.utt_vocab.word2id)), Y[:, j+1])
+                base_loss += self.criterion(logits.view(-1, len(self.tgt_vocab.word2id)), Y[:, j+1])
 
         if self.config['RL']:
             pred_seq = torch.stack(pred_seq)
@@ -433,24 +437,12 @@ class seq2seq(nn.Module):
             loss.backward()
         return loss.item(), reward
 
-    def predict(self, X, encoder, decoder, context, config, EOS_token, BOS_token):
+    def predict(self, X, step_size):
         with torch.no_grad():
-            encoder_hidden = encoder.initHidden(1)
-            encoder_output, _ = encoder(X, encoder_hidden)
-
-            context_hidden = context.initHidden(1)
-            context_output, context_hidden = context(encoder_output, context_hidden)
-            
-            decoder_hidden = context_hidden
-            prev_words = torch.tensor([[BOS_token]]).cuda()
-            pred_seq = []
-            for _ in range(config['max_len']):
-                preds, decoder_hidden = decoder(prev_words, decoder_hidden)
-                _, topi = preds.topk(1)
-                pred_seq.append(topi.item())
-                prev_words = torch.tensor([[topi]]).cuda()
-                if topi == EOS_token:
-                    break
+            encoder_hidden = self.encoder.initHidden(step_size)
+            encoder_output, encoder_hidden = self.encoder(X, encoder_hidden)
+            encoder_hidden = torch.cat((encoder_hidden[0, :, :], encoder_hidden[1, :, :]), dim=-1).unsqueeze(0)
+            pred_seq, _ = self._beam_decode(decoder=self.decoder, decoder_hiddens=encoder_hidden, config=self.config)
         return pred_seq
 
     def reward(self, hyp, ref, context):
@@ -458,7 +450,7 @@ class seq2seq(nn.Module):
         return r_bleu
 
     def _greedy_decode(self, prev_words, decoder, decoder_hidden):
-        EOS_token = self.utt_vocab.word2id['<EOS>']
+        EOS_token = self.tgt_vocab.word2id['<EOS>']
         pred_seq = []
         for _ in range(self.config['max_len']):
             preds, decoder_hidden, _ = decoder(prev_words, decoder_hidden)
@@ -470,7 +462,7 @@ class seq2seq(nn.Module):
         return pred_seq, decoder_hidden
 
     def _sample_decode(self, prev_words, decoder, decoder_hidden):
-        EOS_token = self.utt_vocab.word2id['<EOS>']
+        EOS_token = self.tgt_vocab.word2id['<EOS>']
         pred_seq = []
         for _ in range(self.config['max_len']):
             logits, decoder_hidden, _ = decoder(prev_words, decoder_hidden)
@@ -514,8 +506,8 @@ class seq2seq(nn.Module):
         return logits
 
     def _beam_decode(self, decoder, decoder_hiddens, config, encoder_outputs=None):
-        BOS_token = self.utt_vocab.word2id['<BOS>']
-        EOS_token = self.utt_vocab.word2id['<EOS>']
+        BOS_token = self.tgt_vocab.word2id['<BOS>']
+        EOS_token = self.tgt_vocab.word2id['<EOS>']
         decoded_batch = []
         topk = 1
         # batch対応
@@ -577,5 +569,5 @@ class seq2seq(nn.Module):
             if not pred_seq[-1] == EOS_token: pred_seq.append(EOS_token)
             decoded_batch.append(pred_seq)
 
-        return decoded_batch[0], decoder_hidden
+        return decoded_batch, decoder_hidden
 

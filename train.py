@@ -29,9 +29,10 @@ def initialize_env(name):
 
 def train(experiment, fine_tuning=False):
     print('loading setting "{}"...'.format(experiment))
-
     config = initialize_env(experiment)
     X_train, Y_train, XU_train, YU_train = create_traindata(config=config, prefix='train')
+    print(np.mean([len(sentence) for conv in XU_train for sentence in conv]))
+    input()
     X_valid, Y_valid, XU_valid, YU_valid = create_traindata(config=config, prefix='dev')
     print('Finish create train data...')
 

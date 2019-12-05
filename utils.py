@@ -53,10 +53,9 @@ class da_Vocab:
 
         return vocab
 
-    def tokenize(self, X_tensor, Y_tensor):
+    def tokenize(self, X_tensor):
         X_tensor = [[self.word2id[token] for token in sentence] for sentence in X_tensor]
-        Y_tensor = [[self.word2id[token] for token in sentence] for sentence in Y_tensor]
-        return X_tensor, Y_tensor
+        return X_tensor
 
     def save(self):
         pickle.dump(self.word2id, open(os.path.join(self.config['log_root'], 'da_vocab.dict'), 'wb'))
@@ -66,12 +65,11 @@ class da_Vocab:
         self.id2word = {v: k for k, v in self.word2id.items()}
 
 class utt_Vocab:
-    def __init__(self, config, posts=[], cmnts=[], create_vocab=True):
+    def __init__(self, config, sentences, create_vocab=True):
         self.word2id = None
         self.id2word = None
         self.config = config
-        self.posts = posts
-        self.cmnts = cmnts
+        self.sentences = sentences
         if create_vocab:
             self.construct()
         else:
@@ -81,21 +79,13 @@ class utt_Vocab:
         vocab = {'<UNK>': 0, '<EOS>': 1, '<BOS>': 2, '<PAD>': 3, '<SEP>': 4}
         vocab_count = {}
 
-        for post, cmnt in zip(self.posts, self.cmnts):
-            for seq in post:
-                for word in seq:
-                    if word in vocab: continue
-                    if word in vocab_count:
-                        vocab_count[word] += 1
-                    else:
-                        vocab_count[word] = 1
-            for seq in cmnt:
-                for word in seq:
-                    if word in vocab: continue
-                    if word in vocab_count:
-                        vocab_count[word] += 1
-                    else:
-                        vocab_count[word] = 1
+        for sentence in self.sentences:
+            for word in sentence:
+                if word in vocab: continue
+                if word in vocab_count:
+                    vocab_count[word] += 1
+                else:
+                    vocab_count[word] = 1
 
         for k, _ in sorted(vocab_count.items(), key=lambda x: -x[1]):
             vocab[k] = len(vocab)
@@ -104,10 +94,9 @@ class utt_Vocab:
         self.id2word = {v : k for k, v in vocab.items()}
         return vocab
 
-    def tokenize(self, X_tensor, Y_tensor):
+    def tokenize(self, X_tensor):
         X_tensor = [[[self.word2id[token] if token in self.word2id else self.word2id['<UNK>'] for token in seq] for seq in dialogue] for dialogue in X_tensor]
-        Y_tensor = [[[self.word2id[token] if token in self.word2id else self.word2id['<UNK>'] for token in seq] for seq in dialogue] for dialogue in Y_tensor]
-        return X_tensor, Y_tensor
+        return X_tensor
 
     def save(self):
         pickle.dump(self.word2id, open(os.path.join(self.config['log_root'], 'utterance_vocab.dict'), 'wb'))
@@ -170,8 +159,8 @@ def calc_bleu(refs, hyps):
 
 def create_traindata(config, prefix='train'):
     if config['lang'] == 'en':
-        file_pattern = re.compile(r'^sw_{}_([0-9]*?)\.jsonlines$'.format(prefix))
-        # file_pattern = re.compile(r'^OpenSubtitles\_{}\_([0-9]*?)\.jsonlines$'.format(prefix))
+        # file_pattern = re.compile(r'^sw_{}_([0-9]*?)\.jsonlines$'.format(prefix))
+        file_pattern = re.compile(r'^OpenSubtitles\_{}\_([0-9]*?)\.jsonlines$'.format(prefix))
     elif config['lang'] == 'ja':
         file_pattern = re.compile(r'^data([0-9]*?)\_{}\_([0-9]*?)\.jsonlines$'.format(prefix))
     files = [f for f in os.listdir(config['train_path']) if file_pattern.match(f)]
@@ -241,4 +230,15 @@ def NLILoader(config, prefix='train'):
             label = line['label']
             X.append((x1, x2))
             Y.append(tag2id[label])
+    return X, Y
+
+def MTLoader():
+    X = []
+    Y = []
+    for idx, line in enumerate(open('./data/corpus/mt.tsv', 'r').readlines()):
+        if idx == 20500: break
+        print('\r{}'.format(idx), end='')
+        x, y = line.strip().split('\t')
+        X.append(x.split(' '))
+        Y.append(y.split(' '))
     return X, Y

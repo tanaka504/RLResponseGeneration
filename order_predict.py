@@ -10,6 +10,7 @@ from sklearn.metrics import accuracy_score, f1_score
 import numpy as np
 from scipy import stats
 from pprint import pprint
+import copy
 
 
 class OrderPredictor(nn.Module):
@@ -74,17 +75,21 @@ def train(experiment):
         utt_vocab = utt_Vocab(config, sentences=[sentence for conv in XU_train + XU_valid + YU_train + YU_valid for sentence in conv])
         da_vocab.save()
         utt_vocab.save()
-    XD_train, YD_train = da_vocab.tokenize(XD_train), da_vocab.tokenize(YD_train)
-    XD_valid, YD_valid = da_vocab.tokenize(XD_valid), da_vocab.tokenize(YD_valid)
-    XU_train, YU_train = utt_vocab.tokenize(XU_train), utt_vocab.tokenize(YU_train)
-    XU_valid, YU_valid = utt_vocab.tokenize(XU_valid), utt_vocab.tokenize(YU_valid)
-    print('Finish load vocab')
+    filler_tag = ['acknowledge_(backchannel)', 'backchannel_in_question_form'] if config['lang'] == 'en' else ['フィラー', 'あいづち']
+    XU_train, XD_train = zip(*[(conv, das) for conv, das in zip(XU_train, XD_train) if not das[-1] in filler_tag])
+    XU_valid, XD_valid = zip(*[(conv, das) for conv, das in zip(XU_valid, XD_valid) if not das[-1] in filler_tag])
+    XD_train = da_vocab.tokenize(XD_train)
+    XD_valid = da_vocab.tokenize(XD_valid)
+    XU_train = utt_vocab.tokenize(XU_train)
+    XU_valid = utt_vocab.tokenize(XU_valid)
+    XTarget, DATarget, Y = make_triple(XU_train, XD_train, config=config)
+    print('Finish load data')
 
     lr = config['lr']
     batch_size = config['BATCH_SIZE']
     print_total_loss = 0
 
-    utterance_pair_encoder = UtteranceEncoder(utt_input_size=len(utt_vocab.word2id), embed_size=config['SSN_EMBED'],
+    utterance_encoder = UtteranceEncoder(utt_input_size=len(utt_vocab.word2id), embed_size=config['SSN_EMBED'],
                                               utterance_hidden=config['SSN_ENC_HIDDEN'], padding_idx=utt_vocab.word2id['<PAD>']).cuda()
     if config['use_da']:
         da_pair_encoder = DAPairEncoder(da_hidden_size=config['SSN_DA_HIDDEN'], da_embed_size=config['SSN_DA_EMBED'], da_vocab_size=len(da_vocab.word2id)).cuda()
@@ -93,31 +98,20 @@ def train(experiment):
     order_reasoning_layer = OrderReasoningLayer(encoder_hidden_size=config['SSN_ENC_HIDDEN'], hidden_size=config['SSN_REASONING_HIDDEN'],
                                                 da_hidden_size=config['SSN_DA_HIDDEN']).cuda()
     classifier = Classifier(hidden_size=config['SSN_REASONING_HIDDEN'] * 2, middle_layer_size=config['SSN_MIDDLE_LAYER'], da_hidden_size=config['SSN_DA_HIDDEN'])
-
-    predictor = OrderPredictor(utterance_pair_encoder=utterance_pair_encoder, order_reasoning_layer=order_reasoning_layer,
+    predictor = OrderPredictor(utterance_pair_encoder=utterance_encoder, order_reasoning_layer=order_reasoning_layer,
                                da_pair_encoder=da_pair_encoder, classifier=classifier, criterion=nn.BCELoss(), config=config).cuda()
     model_opt = optim.Adam(predictor.parameters(), lr=lr, weight_decay=1e-5)
     print('total parameters: ', count_parameters(predictor))
-    
+
     print('--- Start Training ---')
     start = time.time()
     _valid_loss = None
     _train_loss = None
     early_stop = 0
-    utterance_pairs = [[XU + [utt_vocab.word2id['<SEP>']] + YU for XU, YU in zip(XU_train[conv_idx], YU_train[conv_idx])] for conv_idx in range(len(XU_train))]
-    utterance_pairs = [[batch[pi] for pi in range(0, len(batch), 2)] for batch in utterance_pairs]
-    if config['use_da']:
-        da_pairs = [[[XD, YD] for XD, YD in zip(XD_train[conv_idx], YD_train[conv_idx])] for conv_idx in range(len(XD_train))]
-        da_pairs = [[batch[pi] for pi in range(0, len(batch), 2)] for batch in da_pairs]
-    else:
-        da_pairs = None
-
-    (_, _, XTarget), (_, _, DATarget), Y = make_triple(utterance_pairs=utterance_pairs, da_pairs=da_pairs, config=config)
-
+    indexes = [i for i in range(len(XTarget))][:1000]
     for e in range(config['EPOCH']):
         tmp_time = time.time()
         print('Epoch {} start'.format(e+1))
-        indexes = [i for i in range(len(XTarget))]
         random.shuffle(indexes)
         k = 0
         predictor.train()
@@ -142,8 +136,8 @@ def train(experiment):
             result = [0 if line < 0.5 else 1 for line in pred]
             train_acc.append(accuracy_score(y_true=y.data.tolist(), y_pred=result))
         print()
-        valid_loss, valid_acc = validation(XU_valid=XU_valid, YU_valid=YU_valid, XD_valid=XD_valid, YD_valid=YD_valid,
-                                model=predictor, utt_vocab=utt_vocab, config=config)
+        valid_loss, valid_acc = validation(XU_valid=XU_valid, XD_valid=XD_valid,
+                                           model=predictor, utt_vocab=utt_vocab, config=config)
 
         def save_model(filename):
             torch.save(predictor.state_dict(), os.path.join(config['log_dir'], 'orderpred_state{}.model'.format(filename)))
@@ -152,7 +146,7 @@ def train(experiment):
             save_model('validbest')
             _valid_loss = valid_acc
         else:
-            if _valid_loss > valid_acc:
+            if _valid_loss < valid_acc:
                 save_model('validbest')
                 _valid_loss = valid_acc
                 print('valid loss update, save model')
@@ -185,9 +179,10 @@ def train(experiment):
     print('Finish training | exec time: %.4f [sec]' % (time.time() - start))
 
 
-def validation(XU_valid, YU_valid, XD_valid, YD_valid, model, utt_vocab, config):
+def validation(XU_valid, XD_valid, model, utt_vocab, config):
     model.eval()
-    indexes = [i for i in range(len(XU_valid))]
+    XTarget, DATarget, Y = make_triple(XU_valid, XD_valid, config=config)
+    indexes = [i for i in range(len(XTarget))]
     random.shuffle(indexes)
     k = 0
     total_loss = 0
@@ -196,20 +191,13 @@ def validation(XU_valid, YU_valid, XD_valid, YD_valid, model, utt_vocab, config)
         step_size = min(config['BATCH_SIZE'], len(indexes)-k)
         # print('\rVALIDATION|\t{} / {} steps'.format(k + step_size, len(indexes)), end='')
         batch_idx = indexes[k : k+step_size]
-        utterance_pairs = [[XU + [utt_vocab.word2id['<SEP>']] + YU for XU, YU in zip(XU_valid[seq_idx], YU_valid[seq_idx])] for seq_idx in batch_idx]
-        if config['use_da']:
-            da_pairs = [[[XD, YD] for XD, YD in zip(XD_valid[seq_idx], YD_valid[seq_idx])] for seq_idx in batch_idx]
-        else:
-            da_pairs = None
-
-        (_, _, Xtarget), (_, _, DAtarget), Y = make_triple(utterance_pairs, da_pairs, config)
-        Xtarget = padding(Xtarget, pad_idx=utt_vocab.word2id['<PAD>'])
+        Xtarget = padding([XTarget[i] for i in batch_idx], pad_idx=utt_vocab.word2id['<PAD>'])
         if config['use_da']:
             DAtarget = torch.tensor(DAtarget).cuda()
         else:
             DAordered, DAmisordered, DAtarget = None, None, None
-        y = torch.tensor(Y, dtype=torch.float).cuda()
-        loss, preds = model.forward(XTarget=Xtarget, DATarget=DAtarget, Y=y, step_size=step_size*config['m'])
+        y = torch.tensor([Y[i] for i in batch_idx], dtype=torch.float).cuda()
+        loss, preds = model.forward(XTarget=Xtarget, DATarget=DAtarget, Y=y, step_size=step_size)
         result = [0 if line < 0.5 else 1 for line in preds]
         valid_acc.append(accuracy_score(y_true=y.data.tolist(), y_pred=result))
         k += step_size
@@ -223,8 +211,9 @@ def evaluate(experiment):
     XD_test, YD_test, XU_test, YU_test = create_traindata(config=config, prefix='test')
     da_vocab = da_Vocab(config=config, create_vocab=False)
     utt_vocab = utt_Vocab(config=config, create_vocab=False)
-    XD_test, YD_test = da_vocab.tokenize(XD_test), da_vocab.tokenize(YD_test)
-    XU_test, YU_test = utt_vocab.tokenize(XU_test), utt_vocab.tokenize(YU_test)
+    XD_test = da_vocab.tokenize(XD_test)
+    XU_test = utt_vocab.tokenize(XU_test)
+    XTarget, DATarget, Y = make_triple(XU_test, XD_test, config=config)
 
     utterance_pair_encoder = UtteranceEncoder(utt_input_size=len(utt_vocab.word2id), embed_size=config['SSN_EMBED'],
                                               utterance_hidden=config['SSN_ENC_HIDDEN'], padding_idx=utt_vocab.word2id['<PAD>']).cuda()
@@ -250,25 +239,13 @@ def evaluate(experiment):
         while k < len(indexes):
             step_size = min(config['BATCH_SIZE'], len(indexes) - k)
             batch_idx = indexes[k : k + step_size]
-            utterance_pairs = [[XU + [utt_vocab.word2id['<SEP>']] + YU for XU, YU in zip(XU_test[seq_idx], YU_test[seq_idx])] for seq_idx in batch_idx]
+            Xtarget = padding([XTarget[i] for i in batch_idx], pad_idx=utt_vocab.word2id['<PAD>'])
             if config['use_da']:
-                da_pairs = [[[XD, YD] for XD, YD in zip(XD_test[seq_idx], YD_test[seq_idx])] for seq_idx in batch_idx]
-            else:
-                da_pairs = None
-            (Xordered, Xmisordered, Xtarget), (DAordered, DAmisordered, DAtarget), Y = make_triple(utterance_pairs, da_pairs, config)
-            Xordered = padding(Xordered, pad_idx=utt_vocab.word2id['<PAD>'])
-            Xmisordered = padding(Xmisordered, pad_idx=utt_vocab.word2id['<PAD>'])
-            Xtarget = padding(Xtarget, pad_idx=utt_vocab.word2id['<PAD>'])
-            if config['use_da']:
-                DAordered = torch.tensor(DAordered).cuda()
-                DAmisordered = torch.tensor(DAmisordered).cuda()
-                DAtarget = torch.tensor(DAtarget).cuda()
+                DAtarget = torch.tensor([DAtarget[i] for i in batch_idx]).cuda()
             else:
                 DAordered, DAmisordered, DAtarget = None, None, None
-            y = torch.tensor(Y, dtype=torch.float).cuda()
-            loss, preds = predictor.forward(XOrdered=Xordered, XMisOrdered=Xmisordered, XTarget=Xtarget,
-                                        DAOrdered=DAordered, DAMisOrdered=DAmisordered, DATarget=DAtarget,
-                                        Y=y, step_size=step_size*config['m'])
+            y = torch.tensor([Y[i] for i in batch_idx], dtype=torch.float).cuda()
+            loss, preds = predictor.forward(XTarget=Xtarget, DATarget=DAtarget, Y=y, step_size=step_size)
             result = [0 if line < 0.5 else 1 for line in preds]
             y_preds.extend(result)
             y_trues.extend(y.data.tolist())
@@ -287,57 +264,34 @@ def conf_interval(X):
 def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
-def make_triple(utterance_pairs, da_pairs=None, config={'m':5}):
-    Xordered = []
-    Xmisordered = []
+def make_triple(utterance_pairs, da_pairs, config={'m':5}):
     Xtarget = []
-    DAordered = []
-    DAmisordered = []
     DAtarget = []
     Y = []
     for bidx in range(len(utterance_pairs)):
-        if not da_pairs is None:
-            da_seq = da_pairs[bidx]
-        else:
-            da_seq = None
+        da_seq = da_pairs[bidx]
         for _ in range(config['m']):
-            (ordered, misordered, target), (da_ordered, da_misordered, da_target), label = sample_triple(utterance_pairs[bidx], da_seq)
-            Xordered.append(ordered)
-            Xmisordered.append(misordered)
+            target, da_target, label = sample_triple(utterance_pairs[bidx], da_seq)
             Xtarget.append(target)
-            DAordered.append(da_ordered)
-            DAmisordered.append(da_misordered)
             DAtarget.append(da_target)
             Y.append(label)
-    return (Xordered, Xmisordered, Xtarget), (DAordered, DAmisordered, DAtarget), Y
+    return Xtarget, DAtarget, Y
 
 def sample_triple(pairs, da_pairs):
-    # sampled_idx = random.sample([i for i in range(len(pairs)-1)], 3)
-    # i, j, k = sorted(sampled_idx)
-    i, j, k = -4, -3, -2
-    ordered = [pairs[i], pairs[j], pairs[k]]
-    misordered = [pairs[i], pairs[k], pairs[j]]
-    if da_pairs is None:
-        da_ordered = None
-        da_misordered = None
-    else:
-        da_ordered = [da_pairs[i], da_pairs[j], da_pairs[k]]
-        da_misordered = [da_pairs[i], da_pairs[k], da_pairs[j]]
+    utterances = copy.copy(pairs)
+    das = copy.copy(da_pairs)
     if random.random() > 0.5:
-        target = [pairs[j], pairs[k], pairs[-1]]
-        if da_pairs is None:
-            da_target = None
-        else:
-            da_target = [da_pairs[j], da_pairs[k], da_pairs[-1]]
         label = [0]
     else:
-        target = [pairs[j], pairs[-1], pairs[k]]
-        if da_pairs is None:
-            da_target = None
-        else:
-            da_target = [da_pairs[j], da_pairs[-1], da_pairs[k]]
+        sampled_idx = random.sample([i for i in range(len(pairs) - 1)], 1)[0]
+        tmp = utterances[sampled_idx]
+        utterances[sampled_idx] = utterances[-1]
+        utterances[-1] = tmp
+        tmp = das[sampled_idx]
+        das[sampled_idx] = das[-1]
+        das[-1] = tmp
         label = [1]
-    return (ordered, misordered, target), (da_ordered, da_misordered, da_target), label
+    return utterances, das, label
 
 
 def padding(batch, pad_idx):

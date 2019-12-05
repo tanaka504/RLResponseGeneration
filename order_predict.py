@@ -194,7 +194,7 @@ def validation(XU_valid, XD_valid, model, utt_vocab, config):
         batch_idx = indexes[k : k+step_size]
         Xtarget = padding([XTarget[i] for i in batch_idx], pad_idx=utt_vocab.word2id['<PAD>'])
         if config['use_da']:
-            DAtarget = torch.tensor(DAtarget).cuda()
+            DAtarget = torch.tensor([DATarget[i] for i in batch_idx]).cuda()
         else:
             DAtarget = None
         y = torch.tensor([Y[i] for i in batch_idx], dtype=torch.float).cuda()

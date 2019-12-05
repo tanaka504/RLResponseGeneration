@@ -23,9 +23,7 @@ class OrderPredictor(nn.Module):
         self.criterion = criterion
         self.config = config
 
-    def forward(self, XOrdered, XMisOrdered, XTarget,
-                DAOrdered, DAMisOrdered, DATarget,
-                Y, step_size):
+    def forward(self, XTarget, DATarget, Y, step_size):
         """
         :param XOrdered: list of concated utterance pair tensors (3, batch_size, seq_len)
         :param XMisOrdered: list of concated utterance pair tensors (3, batch_size, seq_len)
@@ -37,44 +35,23 @@ class OrderPredictor(nn.Module):
         """
         # Encoding
         utterance_pair_hidden = self.utterance_pair_encoder.initHidden(step_size)
-        for idx in range(len(XOrdered)):
-            o_output, _ = self.utterance_pair_encoder(X=XOrdered[idx], hidden=utterance_pair_hidden)
-            XOrdered[idx] = o_output
-            m_output, _ = self.utterance_pair_encoder(X=XMisOrdered[idx], hidden=utterance_pair_hidden)
-            XMisOrdered[idx] = m_output
         for idx in range(len(XTarget)):
             t_output, t_hidden = self.utterance_pair_encoder(X=XTarget[idx], hidden=utterance_pair_hidden)
             XTarget[idx] = t_output
-        XOrdered = torch.stack(XOrdered).squeeze(2)
-        XMisOrdered = torch.stack(XMisOrdered).squeeze(2)
         XTarget = torch.stack(XTarget).squeeze(2)
         # Tensor:(window_size, batch_size, hidden_size)
 
         if self.config['use_da']:
-            da_o_output = self.da_pair_encoder(DAOrdered).permute(1,0,2)
-            da_m_output = self.da_pair_encoder(DAMisOrdered).permute(1,0,2)
             da_t_output = self.da_pair_encoder(DATarget).permute(1,0,2)
         else:
-            da_o_output, da_m_output, da_t_output = None, None, None
+            da_t_output = None
         # DATensor: (batch_size, window_size, hidden_size)
-        XOrdered, da_o_output = self.order_reasoning_layer(X=XOrdered, DA=da_o_output,
-                                                           hidden=self.order_reasoning_layer.initHidden(step_size),
-                                                           da_hidden=self.order_reasoning_layer.initDAHidden(step_size))
-        XMisOrdered, da_m_output = self.order_reasoning_layer(X=XMisOrdered, DA=da_m_output,
-                                                           hidden=self.order_reasoning_layer.initHidden(step_size),
-                                                           da_hidden=self.order_reasoning_layer.initDAHidden(step_size))
         XTarget, da_t_output = self.order_reasoning_layer(X=XTarget, DA=da_t_output,
                                                            hidden=self.order_reasoning_layer.initHidden(step_size),
                                                            da_hidden=self.order_reasoning_layer.initDAHidden(step_size))
-        if not da_o_output is None:
-            da_output = torch.cat((da_o_output, da_m_output, da_t_output), dim=-1)
-            # da_output: (batch_size, da_hidden_size * 3)
-        else:
-            da_output = None
-        output = torch.cat((XOrdered, XMisOrdered, XTarget), dim=-1)
-        # output: (batch_size, hidden_size * 6)
+        # output: (batch_size, hidden_size * 2)
 
-        pred = self.classifier(output, da_output).squeeze(1)
+        pred = self.classifier(XTarget, da_t_output).squeeze(1)
         Y = Y.squeeze(1)
         loss = self.criterion(pred, Y)
         torch.nn.utils.clip_grad_norm_(self.parameters(), self.config['clip'])
@@ -114,7 +91,7 @@ def train(experiment):
         da_pair_encoder = None
     order_reasoning_layer = OrderReasoningLayer(encoder_hidden_size=config['SSN_ENC_HIDDEN'], hidden_size=config['SSN_REASONING_HIDDEN'],
                                                 da_hidden_size=config['SSN_DA_HIDDEN']).cuda()
-    classifier = Classifier(hidden_size=config['SSN_REASONING_HIDDEN'] * 6, middle_layer_size=config['SSN_MIDDLE_LAYER'], da_hidden_size=config['SSN_DA_HIDDEN'] * 3)
+    classifier = Classifier(hidden_size=config['SSN_REASONING_HIDDEN'] * 2, middle_layer_size=config['SSN_MIDDLE_LAYER'], da_hidden_size=config['SSN_DA_HIDDEN'])
 
     predictor = OrderPredictor(utterance_pair_encoder=utterance_pair_encoder, order_reasoning_layer=order_reasoning_layer,
                                da_pair_encoder=da_pair_encoder, classifier=classifier, criterion=nn.BCELoss(), config=config).cuda()
@@ -134,12 +111,12 @@ def train(experiment):
     else:
         da_pairs = None
 
-    (XOrdered, XMisOrdered, XTarget), (DAOrdered, DAMisOrdered, DATarget), Y = make_triple(utterance_pairs=utterance_pairs, da_pairs=da_pairs, config=config)
+    (_, _, XTarget), (_, _, DATarget), Y = make_triple(utterance_pairs=utterance_pairs, da_pairs=da_pairs, config=config)
 
     for e in range(config['EPOCH']):
         tmp_time = time.time()
         print('Epoch {} start'.format(e+1))
-        indexes = [i for i in range(len(XOrdered))]
+        indexes = [i for i in range(len(XTarget))]
         random.shuffle(indexes)
         k = 0
         predictor.train()
@@ -150,19 +127,13 @@ def train(experiment):
             batch_idx = indexes[k: k+step_size]
             model_opt.zero_grad()
 
-            Xordered = padding([XOrdered[i] for i in batch_idx], pad_idx=utt_vocab.word2id['<PAD>'])
-            Xmisordered = padding([XMisOrdered[i] for i in batch_idx], pad_idx=utt_vocab.word2id['<PAD>'])
             Xtarget = padding([XTarget[i] for i in batch_idx], pad_idx=utt_vocab.word2id['<PAD>'])
             if config['use_da']:
-                DAordered = torch.tensor([DAOrdered[i] for i in batch_idx]).cuda()
-                DAmisordered = torch.tensor([DAMisOrdered[i] for i in batch_idx]).cuda()
                 DAtarget = torch.tensor([DATarget[i] for i in batch_idx]).cuda()
             else:
                 DAordered, DAmisordered, DAtarget = None, None, None
             y = torch.tensor([Y[i] for i in batch_idx], dtype=torch.float).cuda()
-            loss, pred = predictor(XOrdered=Xordered, XMisOrdered=Xmisordered, XTarget=Xtarget,
-                                   DAOrdered=DAordered, DAMisOrdered=DAmisordered, DATarget=DAtarget,
-                                   Y=y, step_size=step_size)
+            loss, pred = predictor(XTarget=Xtarget, DATarget=DAtarget, Y=y, step_size=step_size)
             print_total_loss += loss
             model_opt.step()
             k += step_size
@@ -230,20 +201,14 @@ def validation(XU_valid, YU_valid, XD_valid, YD_valid, model, utt_vocab, config)
         else:
             da_pairs = None
 
-        (Xordered, Xmisordered, Xtarget), (DAordered, DAmisordered, DAtarget), Y = make_triple(utterance_pairs, da_pairs, config)
-        Xordered = padding(Xordered, pad_idx=utt_vocab.word2id['<PAD>'])
-        Xmisordered = padding(Xmisordered, pad_idx=utt_vocab.word2id['<PAD>'])
+        (_, _, Xtarget), (_, _, DAtarget), Y = make_triple(utterance_pairs, da_pairs, config)
         Xtarget = padding(Xtarget, pad_idx=utt_vocab.word2id['<PAD>'])
         if config['use_da']:
-            DAordered = torch.tensor(DAordered).cuda()
-            DAmisordered = torch.tensor(DAmisordered).cuda()
             DAtarget = torch.tensor(DAtarget).cuda()
         else:
             DAordered, DAmisordered, DAtarget = None, None, None
         y = torch.tensor(Y, dtype=torch.float).cuda()
-        loss, preds = model.forward(XOrdered=Xordered, XMisOrdered=Xmisordered, XTarget=Xtarget,
-                                    DAOrdered=DAordered, DAMisOrdered=DAmisordered, DATarget=DAtarget,
-                                    Y=y, step_size=step_size*config['m'])
+        loss, preds = model.forward(XTarget=Xtarget, DATarget=DAtarget, Y=y, step_size=step_size*config['m'])
         result = [0 if line < 0.5 else 1 for line in preds]
         valid_acc.append(accuracy_score(y_true=y.data.tolist(), y_pred=result))
         k += step_size
@@ -343,20 +308,12 @@ def make_triple(utterance_pairs, da_pairs=None, config={'m':5}):
             DAmisordered.append(da_misordered)
             DAtarget.append(da_target)
             Y.append(label)
-    # padding
-    # Xordered = padding(Xordered, utt_vocab.word2id['<PAD>'])
-    # Xmisordered = padding(Xmisordered, utt_vocab.word2id['<PAD>'])
-    # Xtarget = padding(Xtarget, utt_vocab.word2id['<PAD>'])
-    # if not da_pairs is None:
-    #     da_ordered = torch.tensor(DAordered).cuda()
-    #     da_misordered = torch.tensor(DAmisordered).cuda()
-    #     da_target = torch.tensor(DAtarget).cuda()
     return (Xordered, Xmisordered, Xtarget), (DAordered, DAmisordered, DAtarget), Y
 
 def sample_triple(pairs, da_pairs):
-    sampled_idx = random.sample([i for i in range(len(pairs)-1)], 3)
-    i, j, k = sorted(sampled_idx)
-    # i, j, k = -4, -3, -2
+    # sampled_idx = random.sample([i for i in range(len(pairs)-1)], 3)
+    # i, j, k = sorted(sampled_idx)
+    i, j, k = -4, -3, -2
     ordered = [pairs[i], pairs[j], pairs[k]]
     misordered = [pairs[i], pairs[k], pairs[j]]
     if da_pairs is None:
@@ -393,8 +350,6 @@ def padding(batch, pad_idx):
 
 
 if __name__ == '__main__':
-    global args
     args = parse()
-
-    # train(args.expr)
+    train(args.expr)
     evaluate(args.expr)

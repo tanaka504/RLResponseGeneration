@@ -3,162 +3,125 @@ import torch.nn as nn
 from torch import optim
 from train import initialize_env, parse
 import time, random
-from transformers import *
 from utils import *
 from sklearn.metrics import accuracy_score
-
-class Classifier(nn.Module):
-    def __init__(self, encoder_hidden,middle_layer_size):
-        super(Classifier, self).__init__()
-        self.encoder_hidden = encoder_hidden
-        self.middle_layer_size = middle_layer_size
-
-        self.hm = nn.Linear(self.encoder_hidden, self.middle_layer_size)
-        self.my = nn.Linear(self.middle_layer_size, 3)
-
-    def forward(self, X):
-        return self.my(self.hm(X))
-
-class NLI(nn.Module):
-    def __init__(self, classifier, criterion, config):
-        super(NLI, self).__init__()
-        self.classifier = classifier
-        self.config = config
-        self.tokenizer = DistilBertTokenizer.from_pretrained(config['BERT_MODEL'])
-        self.encoder = DistilBertForSequenceClassification.from_pretrained(config['BERT_MODEL'],
-                                                                           output_hidden_states=True,
-                                                                           output_attentions=True)
-        self.criterion = criterion
-    def forward(self, X, Y):
-        x_hidden, x1_attentions = self.encoder(X)[-2:]
-        x_hidden = x_hidden[-1]
-        output = x_hidden[:, 0, :] # use [CLS] label representation
-        pred = self.classifier(output)
-        loss = self.criterion(pred, Y)
-        loss.backward()
-        return loss.item(), pred
-
-def train(experiment):
-    start = time.time()
-    config = initialize_env(experiment)
-    X, Y = NLILoader(config=config, prefix='train')
-    X_valid, Y_valid = NLILoader(config=config, prefix='dev')
-    criterion = nn.CrossEntropyLoss()
-    lr = config['lr']
-    batch_size = config['BATCH_SIZE']
-    classifier = Classifier(encoder_hidden=768, middle_layer_size=config['NLI_MIDDLE_LAYER']).cuda()
-    model = NLI(classifier=classifier, criterion=criterion, config=config).cuda()
-    model_opt = optim.Adam(model.parameters(), lr=lr)
-    _valid_loss = None
-    early_stop = 0
-    print_total_loss = 0
-    for e in range(config['EPOCH']):
-        tmp_time = time.time()
-        print('Epoch {} start.'.format(e+1))
-        indexes = [i for i in range(len(X))]
-        random.shuffle(indexes)
-        k = 0
-        train_acc = []
-        model.train()
-        while k < len(indexes):
-            step_size = min(batch_size, len(indexes)-k)
-            print('\rTRAINING|\t{} / {} .'.format(k+step_size, len(indexes)), end='')
-            batch_idx = indexes[k: k+step_size]
-            model_opt.zero_grad()
-            x = [X[i] for i in batch_idx]
-            y = [Y[i] for i in batch_idx]
-            x = string2tensor(model.tokenizer, list(x))
-            y = torch.tensor(y).cuda()
-            loss, pred = model(X=x, Y=y)
-            preds = torch.argmax(pred, dim=1).data.tolist()
-            train_acc.append(accuracy_score(y_true=y.data.tolist(), y_pred=preds))
-            model_opt.step()
-            k += step_size
-            print_total_loss += loss
-        print()
-        valid_loss = validation(model, X_valid, Y_valid, config)
-        def save(fname):
-            torch.save(model.state_dict(), os.path.join(config['log_dir'], 'state{}.model'.format(fname)))
-        if _valid_loss is None:
-            save('validbest')
-            _valid_loss = valid_loss
-        else:
-            if _valid_loss > valid_loss:
-                save('validbest')
-                early_stop = 0
-            else:
-                early_stop += 1
-                if early_stop >= config['EARLY_STOP']: break
-
-        if (e + 1) % config['LOGGING_FREQ'] == 0:
-            print_loss_avg = print_total_loss / config['LOGGING_FREQ']
-            print_total_loss = 0
-            print('train acc. | ', np.mean(train_acc))
-            print('epoch %d\tloss %.4f\tvalid loss %.4f\t | exec time %.4f' % (e + 1, print_loss_avg, valid_loss, time.time() - tmp_time))
-
-        if (e + 1) % config['SAVE_MODEL'] == 0:
-            print('save model')
-            save(e+1)
-    print()
-    print('Finish training | exec time: %.4f [sec]' % (time.time() - start))
-
-    
-def validation(model, X, Y, config):
-    batch_size = config['BATCH_SIZE']
-    indexes = [i for i in range(len(X))]
-    random.shuffle(indexes)
-    k = 0
-    model.eval()
-    total_loss = 0
-    val_acc = []
-    while k < len(indexes):
-        step_size = min(batch_size, len(indexes) - k)
-        batch_idx = indexes[k: k + step_size]
-        x = [X[i] for i in batch_idx]
-        y = [Y[i] for i in batch_idx]
-        x = string2tensor(model.tokenizer, x)
-        y = torch.tensor(y).cuda()
-        loss, pred = model(X=x, Y=y)
-        preds = torch.argmax(pred, dim=1).data.tolist()
-        val_acc.append(accuracy_score(y_true=y.data.tolist(), y_pred=preds))
-        k += step_size
-        total_loss += loss
-    print('Avg. acc.: ', np.mean(val_acc))
-    return loss
-def evaluate(experiment):
-    config = initialize_env(experiment)
-    X, Y = NLILoader(config=config, prefix='test')
-    lr = config['lr']
-    batch_size = config['BATCH_SIZE']
-    classifier = Classifier(encoder_hidden=768, middle_layer_size=config['NLI_MIDDLE_LAYER']).cuda()
-    model = NLI(classifier=classifier, criterion=criterion, config=config).cuda()
-    model.load_state_dict(torch.load(os.path.join(config['log_dir'], 'statevalidbest.model')))
-    indexes = [i for i in range(X)]
-    k = 0
-    model.eval()
-    while k < len(indexes):
-        step_size = min(batch_size, len(indexes)-k)
-        print('\rEVALUATION|\t{} / {} .'.format(k+step_size, len(indexes)), end='')
-        batch_idx = indexes[k: k+step_size]
-        x = [X[i] for i in batch_idx]
-        y = [Y[i] for i in batch_idx]
-        x = string2tensor(model.tokenizer, list(x))
-        y = torch.tensor(y).cuda()
-        loss, pred = model(X=x, Y=y)
-        k += step_size
-    print()
+from pyknp import Juman
+from torch.utils.data import DataLoader, SequentialSampler, TensorDataset
+from torch.utils.data.distributed import DistributedSampler
+from transformers import glue_convert_examples_to_features as convert_examples_to_features
+from transformers import glue_output_modes as output_modes
+from transformers import glue_compute_metrics as compute_metrics
+from transformers import glue_processors as processors
+from tqdm import tqdm
+from transformers import BertConfig, BertForSequenceClassification, BertTokenizer
+from transformers.data.processors.utils import InputExample
 
 
+class NLI:
+    def __init__(self):
+        self.model = BertForSequenceClassification.from_pretrained('./data/model_en/bert_fine_tuning').cuda()
+        self.tokenizer = BertTokenizer.from_pretrained('./data/model_en/bert_fine_tuning')
 
-def string2tensor(tokenizer, X):
-    max_seq_len = max(len(batch) for batch in X)
-    for bidx in range(len(X)):
-        x_seq = tokenizer.encode(X[bidx])
-        pad_len = max_seq_len - len(x_seq)
-        X[bidx] = x_seq + [0 for _ in range(pad_len)]
-        assert len(X[bidx]) == max_seq_len, '{}, {}'.format(len(X[bidx]), max_seq_len)
-    return torch.tensor(X).cuda()
+    def predict(self, x1, x2):
+        """
+        param x1: batch of sentence1 (batch_size, seq_len)
+        param x2: batch of sentence2 (batch_size, seq_len)
+        """
+        output_dir = './data/model_en/bert_fine_tuning'
+        # Loop to handle MNLI double evaluation (matched, mis-matched)
+        eval_task_names = ("dnli",)
+        eval_outputs_dirs = (output_dir,)
+
+        for eval_task, eval_output_dir in zip(eval_task_names, eval_outputs_dirs):
+            eval_dataset = self.load_and_cache_examples(x1, x2, eval_task, self.tokenizer, evaluate=True)
+
+            if not os.path.exists(eval_output_dir):
+                os.makedirs(eval_output_dir)
+
+            # Note that DistributedSampler samples randomly
+            eval_sampler = SequentialSampler(eval_dataset)
+            eval_dataloader = DataLoader(eval_dataset, sampler=eval_sampler, batch_size=32)
+
+            eval_loss = 0.0
+            nb_eval_steps = 0
+            preds = None
+            out_label_ids = None
+            for batch in tqdm(eval_dataloader, desc="Evaluating"):
+                self.model.eval()
+                batch = tuple(t.cuda() for t in batch)
+
+                with torch.no_grad():
+                    inputs = {'input_ids': batch[0],
+                              'attention_mask': batch[1],
+                              'labels': batch[3]}
+                    inputs['token_type_ids'] = batch[2]
+                    outputs = self.model(**inputs)
+                    tmp_eval_loss, logits = outputs[:2]
+
+                    eval_loss += tmp_eval_loss.mean().item()
+                nb_eval_steps += 1
+                if preds is None:
+                    preds = logits.detach().cpu().numpy()
+                    out_label_ids = inputs['labels'].detach().cpu().numpy()
+                else:
+                    preds = np.append(preds, logits.detach().cpu().numpy(), axis=0)
+                    out_label_ids = np.append(out_label_ids, inputs['labels'].detach().cpu().numpy(), axis=0)
+        return preds
+
+    def load_and_cache_examples(self, x1, x2, task, tokenizer, evaluate=True):
+        processor = processors[task]()
+        output_mode = output_modes[task]
+        # Load data features from cache or dataset file
+        label_list = processor.get_labels()
+        examples = []
+        for t1, t2 in zip(x1, x2):
+            guid = "%s-%s" % ('dev_matched', t1)
+            examples.append(InputExample(guid=guid, text_a=t1, text_b=t2, label='negative'))
+
+        features = convert_examples_to_features(examples,
+                                                tokenizer,
+                                                label_list=label_list,
+                                                max_length=128,
+                                                output_mode=output_mode,
+                                                pad_on_left=False,
+                                                # pad on the left for xlnet
+                                                pad_token=tokenizer.convert_tokens_to_ids([tokenizer.pad_token])[0],
+                                                pad_token_segment_id=0,
+                                                )
+
+        # Convert to Tensors and build dataset
+        all_input_ids = torch.tensor([f.input_ids for f in features], dtype=torch.long)
+        all_attention_mask = torch.tensor([f.attention_mask for f in features], dtype=torch.long)
+        all_token_type_ids = torch.tensor([f.token_type_ids for f in features], dtype=torch.long)
+        if output_mode == "classification":
+            all_labels = torch.tensor([f.label for f in features], dtype=torch.long)
+        elif output_mode == "regression":
+            all_labels = torch.tensor([f.label for f in features], dtype=torch.float)
+
+        dataset = TensorDataset(all_input_ids, all_attention_mask, all_token_type_ids, all_labels)
+        return dataset
+
+class JumanTokenizer:
+    def __init__(self):
+        self.juman = Juman()
+
+    def tokenize(self, text):
+        text.translate(str.maketrans({chr(0x0021 + i): chr(0xFF01 + i) for i in range(94)}))
+        text = re.sub(r'\s', '　', text)
+        result = self.juman.analysis(text)
+        return [mrph.midasi for mrph in result.mrph_list()]
+
+def main():
+    label2id = {'positive': 0, 'negative': 1, 'neutral': 2}
+    predictor = NLI()
+    f = open('./data/corpus/dnli/dialogue_nli_test.tsv', 'r')
+    testdata = [line.strip().split('\t') for line in f.readlines()]
+    x1, x2, label = zip(*testdata)
+    preds = predictor.predict(x1[:1000], x2[:1000])
+    preds = np.argmax(preds, axis=1)
+    print(accuracy_score(y_pred=preds, y_true=[label2id[t] for t in label[:1000]]))
 
 if __name__ == '__main__':
     args = parse()
-    train(args.expr)
+    main()
+

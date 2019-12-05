@@ -46,8 +46,32 @@ def FileIter():
             print('\rFinish preprocess {}/{} files'.format(i, len(files)), end='')
         print()
 
-def test1file():
-    preprocess('./data/swda/sw00utt', 'sw_0002_4330.utt.txt')
+def DNLIPreprocess(prefix):
+    jsondata = json.load(open('./data/corpus/dnli/dialogue_nli/dialogue_nli_{}.jsonl'.format(prefix)))
+    f = open('./data/corpus/dnli/dialogue_nli_{}.tsv'.format(prefix), 'w')
+    f.write('\n'.join(['{}\t{}\t{}'.format(line['sentence1'], line['sentence2'], line['label']) for line in jsondata]))
+    f.close()
+
+def RITEPreprocess(prefix):
+    jsondata = json.load(open('./data/corpus/RITE/RITE2_JA_{}_mc.json'.format(prefix)))
+    f = open('./data/corpus/RITE/RITE_{}.tsv'.format(prefix), 'w')
+    f.write('\n'.join(['{}\t{}\t{}'.format(line['t1'], line['t2'], line['label']) for line in jsondata]))
+    f.close()
+
+def MTPreprocess():
+    from NLI import JumanTokenizer
+    from nltk import tokenize
+    src_tokenizer = JumanTokenizer()
+    pattern = re.compile('^A: (.*?)#ID=(.*?)$')
+    f = open('./data/corpus/mt.tsv', 'w')
+    for idx, line in enumerate(open('./data/corpus/mt.corpus', 'r').readlines()):
+        m = pattern.search(line)
+        if m is None: continue
+        x, y = m.group(1).split('\t')
+        x = ' '.join(src_tokenizer.tokenize(x))
+        y = ' '.join(tokenize.word_tokenize(y.lower()))
+        f.write(x + '\t' + y + '\n')
+    f.close()
 
 if __name__ == '__main__':
-    FileIter()
+    MTPreprocess()

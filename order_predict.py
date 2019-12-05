@@ -14,11 +14,11 @@ import copy
 
 
 class OrderPredictor(nn.Module):
-    def __init__(self, utterance_pair_encoder, da_pair_encoder,
+    def __init__(self, utterance_pair_encoder, da_encoder,
                  order_reasoning_layer, classifier, criterion, config):
         super(OrderPredictor, self).__init__()
         self.utterance_pair_encoder = utterance_pair_encoder
-        self.da_pair_encoder = da_pair_encoder
+        self.da_encoder = da_encoder
         self.order_reasoning_layer = order_reasoning_layer
         self.classifier = classifier
         self.criterion = criterion
@@ -43,7 +43,7 @@ class OrderPredictor(nn.Module):
         # Tensor:(window_size, batch_size, hidden_size)
 
         if self.config['use_da']:
-            da_t_output = self.da_pair_encoder(DATarget).permute(1,0,2)
+            da_t_output = self.da_encoder(DATarget).permute(1,0,2)
         else:
             da_t_output = None
         # DATensor: (batch_size, window_size, hidden_size)
@@ -92,14 +92,15 @@ def train(experiment):
     utterance_encoder = UtteranceEncoder(utt_input_size=len(utt_vocab.word2id), embed_size=config['SSN_EMBED'],
                                               utterance_hidden=config['SSN_ENC_HIDDEN'], padding_idx=utt_vocab.word2id['<PAD>']).cuda()
     if config['use_da']:
-        da_pair_encoder = DAPairEncoder(da_hidden_size=config['SSN_DA_HIDDEN'], da_embed_size=config['SSN_DA_EMBED'], da_vocab_size=len(da_vocab.word2id)).cuda()
+        # da_pair_encoder = DAPairEncoder(da_hidden_size=config['SSN_DA_HIDDEN'], da_embed_size=config['SSN_DA_EMBED'], da_vocab_size=len(da_vocab.word2id)).cuda()
+        da_encoder = DAEncoder(da_input_size=len(da_vocab.word2id), da_embed_size=config['SSN_DA_EMBED'], da_hidden=config['SSN_DA_HIDDEN'])
     else:
-        da_pair_encoder = None
+        da_encoder = None
     order_reasoning_layer = OrderReasoningLayer(encoder_hidden_size=config['SSN_ENC_HIDDEN'], hidden_size=config['SSN_REASONING_HIDDEN'],
                                                 da_hidden_size=config['SSN_DA_HIDDEN']).cuda()
     classifier = Classifier(hidden_size=config['SSN_REASONING_HIDDEN'] * 2, middle_layer_size=config['SSN_MIDDLE_LAYER'], da_hidden_size=config['SSN_DA_HIDDEN'])
     predictor = OrderPredictor(utterance_pair_encoder=utterance_encoder, order_reasoning_layer=order_reasoning_layer,
-                               da_pair_encoder=da_pair_encoder, classifier=classifier, criterion=nn.BCELoss(), config=config).cuda()
+                               da_encoder=da_encoder, classifier=classifier, criterion=nn.BCELoss(), config=config).cuda()
     model_opt = optim.Adam(predictor.parameters(), lr=lr, weight_decay=1e-5)
     print('total parameters: ', count_parameters(predictor))
 
@@ -108,7 +109,7 @@ def train(experiment):
     _valid_loss = None
     _train_loss = None
     early_stop = 0
-    indexes = [i for i in range(len(XTarget))][:1000]
+    indexes = [i for i in range(len(XTarget))]
     for e in range(config['EPOCH']):
         tmp_time = time.time()
         print('Epoch {} start'.format(e+1))
@@ -126,7 +127,7 @@ def train(experiment):
             if config['use_da']:
                 DAtarget = torch.tensor([DATarget[i] for i in batch_idx]).cuda()
             else:
-                DAordered, DAmisordered, DAtarget = None, None, None
+                DAtarget = None
             y = torch.tensor([Y[i] for i in batch_idx], dtype=torch.float).cuda()
             loss, pred = predictor(XTarget=Xtarget, DATarget=DAtarget, Y=y, step_size=step_size)
             print_total_loss += loss
@@ -195,7 +196,7 @@ def validation(XU_valid, XD_valid, model, utt_vocab, config):
         if config['use_da']:
             DAtarget = torch.tensor(DAtarget).cuda()
         else:
-            DAordered, DAmisordered, DAtarget = None, None, None
+            DAtarget = None
         y = torch.tensor([Y[i] for i in batch_idx], dtype=torch.float).cuda()
         loss, preds = model.forward(XTarget=Xtarget, DATarget=DAtarget, Y=y, step_size=step_size)
         result = [0 if line < 0.5 else 1 for line in preds]
@@ -243,7 +244,7 @@ def evaluate(experiment):
             if config['use_da']:
                 DAtarget = torch.tensor([DAtarget[i] for i in batch_idx]).cuda()
             else:
-                DAordered, DAmisordered, DAtarget = None, None, None
+                DAtarget = None
             y = torch.tensor([Y[i] for i in batch_idx], dtype=torch.float).cuda()
             loss, preds = predictor.forward(XTarget=Xtarget, DATarget=DAtarget, Y=y, step_size=step_size)
             result = [0 if line < 0.5 else 1 for line in preds]

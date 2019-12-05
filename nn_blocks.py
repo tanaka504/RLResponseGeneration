@@ -6,7 +6,7 @@ from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
 
 class DAEncoder(nn.Module):
-    def __init__(self, da_input_size, da_embed_size,da_hidden):
+    def __init__(self, da_input_size, da_embed_size, da_hidden):
         super(DAEncoder, self).__init__()
         self.hidden_size = da_hidden
         self.xe = nn.Embedding(da_input_size, da_embed_size)

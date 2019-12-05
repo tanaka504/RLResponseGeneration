@@ -31,8 +31,6 @@ def train(experiment, fine_tuning=False):
     print('loading setting "{}"...'.format(experiment))
     config = initialize_env(experiment)
     X_train, Y_train, XU_train, YU_train = create_traindata(config=config, prefix='train')
-    print(np.mean([len(sentence) for conv in XU_train for sentence in conv]))
-    input()
     X_valid, Y_valid, XU_valid, YU_valid = create_traindata(config=config, prefix='dev')
     print('Finish create train data...')
 
@@ -40,17 +38,17 @@ def train(experiment, fine_tuning=False):
         da_vocab = da_Vocab(config, create_vocab=False)
         utt_vocab = utt_Vocab(config, create_vocab=False)
     else:
-        da_vocab = da_Vocab(config, X_train + X_valid, Y_train + Y_valid)
-        utt_vocab = utt_Vocab(config, XU_train + XU_valid, YU_train + YU_valid)
+        da_vocab = da_Vocab(config, das=[token for conv in X_train + X_valid + Y_train + Y_valid for token in conv])
+        utt_vocab = utt_Vocab(config, sentences=[sentence for conv in XU_train + XU_valid + YU_train + YU_valid for sentence in conv])
         da_vocab.save()
         utt_vocab.save()
     print('Finish create vocab dic...')
 
     # Tokenize sequences
-    X_train, Y_train = da_vocab.tokenize(X_train, Y_train)
-    X_valid, Y_valid = da_vocab.tokenize(X_valid, Y_valid)
-    XU_train, YU_train = utt_vocab.tokenize(XU_train, YU_train)
-    XU_valid, YU_valid = utt_vocab.tokenize(XU_valid, YU_valid)
+    X_train, Y_train = da_vocab.tokenize(X_train), da_vocab.tokenize(Y_train)
+    X_valid, Y_valid = da_vocab.tokenize(X_valid), da_vocab.tokenize(Y_valid)
+    XU_train, YU_train = utt_vocab.tokenize(XU_train), utt_vocab.tokenize(YU_train)
+    XU_valid, YU_valid = utt_vocab.tokenize(XU_valid), utt_vocab.tokenize(YU_valid)
     print('Finish preparing dataset...')
     assert len(X_train) == len(Y_train), 'Unexpect content in train data'
     assert len(X_valid) == len(Y_valid), 'Unexpect content in valid data'

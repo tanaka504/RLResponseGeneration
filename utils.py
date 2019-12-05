@@ -19,12 +19,11 @@ parallel_pattern = re.compile(r'^(.+?)(\t)(.+?)$')
 file_pattern = re.compile(r'^sw\_([0-9]+?)\_([0-9]+?)\.jsonlines$')
 
 class da_Vocab:
-    def __init__(self, config, posts=[], cmnts=[], create_vocab=True):
+    def __init__(self, config, das=[], create_vocab=True):
         self.word2id = None
         self.id2word = None
         self.config = config
-        self.posts = posts
-        self.cmnts = cmnts
+        self.das = das
         if create_vocab:
             self.construct()
         else:
@@ -34,17 +33,11 @@ class da_Vocab:
         vocab = {'<PAD>': 0, }
         vocab_count = {}
 
-        for post, cmnt in zip(self.posts, self.cmnts):
-            for token in post:
-                if token in vocab_count:
-                    vocab_count[token] += 1
-                else:
-                    vocab_count[token] = 1
-            for token in cmnt:
-                if token in vocab_count:
-                    vocab_count[token] += 1
-                else:
-                    vocab_count[token] = 1
+        for token in self.das:
+            if token in vocab_count:
+                vocab_count[token] += 1
+            else:
+                vocab_count[token] = 1
 
         for k, _ in sorted(vocab_count.items(), key=lambda x: -x[1]):
             vocab[k] = len(vocab)
@@ -65,7 +58,7 @@ class da_Vocab:
         self.id2word = {v: k for k, v in self.word2id.items()}
 
 class utt_Vocab:
-    def __init__(self, config, sentences, create_vocab=True):
+    def __init__(self, config, sentences=[], create_vocab=True):
         self.word2id = None
         self.id2word = None
         self.config = config

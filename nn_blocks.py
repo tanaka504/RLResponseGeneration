@@ -172,9 +172,8 @@ class Classifier(nn.Module):
         self.middle_layer_size = middle_layer_size
         self.da_hidden_size = da_hidden_size
 
-        self.hm = nn.Linear(self.hidden_size * 6, self.middle_layer_size)
-        self.base_hm = nn.Linear(self.hidden_size * 3, self.middle_layer_size)
-        self.mm = nn.Linear(self.middle_layer_size + self.da_hidden_size * 3, self.middle_layer_size)
+        self.hm = nn.Linear(self.hidden_size, self.middle_layer_size)
+        self.mm = nn.Linear(self.middle_layer_size + self.da_hidden_size, self.middle_layer_size)
         self.my = nn.Linear(self.middle_layer_size, 1)
 
     def forward(self, X, DA=None):
@@ -184,14 +183,6 @@ class Classifier(nn.Module):
             output = self.hm(X)
         tmp = self.my(output)
         pred = torch.sigmoid(tmp)
-        return pred
-
-    def baseline(self, X, DA=None):
-        if not DA is None:
-            output = nn.ReLU(self.mm(torch.cat((self.base_hm(X), DA), dim=-1)))
-        else:
-            output = nn.ReLU(self.base_hm(X))
-        pred = torch.sigmoid(self.my(output))
         return pred
 
 

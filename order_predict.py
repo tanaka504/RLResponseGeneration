@@ -222,8 +222,8 @@ def evaluate(experiment):
     XD_test, YD_test, XU_test, YU_test = create_traindata(config=config, prefix='test')
     da_vocab = da_Vocab(config=config, create_vocab=False)
     utt_vocab = utt_Vocab(config=config, create_vocab=False)
-    XD_test, YD_test = da_vocab.tokenize(XD_test, YD_test)
-    XU_test, YU_test = utt_vocab.tokenize(XU_test, YU_test)
+    XD_test, YD_test = da_vocab.tokenize(XD_test), da_vocab.tokenize(YD_test)
+    XU_test, YU_test = utt_vocab.tokenize(XU_test), utt_vocab.tokenize(YU_test)
 
     utterance_pair_encoder = UtteranceEncoder(utt_input_size=len(utt_vocab.word2id), embed_size=config['SSN_EMBED'],
                                               utterance_hidden=config['SSN_ENC_HIDDEN'], padding_idx=utt_vocab.word2id['<PAD>']).cuda()

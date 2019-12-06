@@ -128,22 +128,24 @@ class DAPairEncoder(nn.Module):
 
 
 class OrderReasoningLayer(nn.Module):
-    def __init__(self, encoder_hidden_size, hidden_size, da_hidden_size):
+    def __init__(self, encoder_hidden_size, hidden_size, da_hidden_size, attn=False):
         super(OrderReasoningLayer, self).__init__()
         self.encoder_hidden_size = encoder_hidden_size
         self.hidden_size = hidden_size
         self.da_hidden_size = da_hidden_size
+        self.attn = attn
 
         self.xh = nn.Linear(self.encoder_hidden_size * 2, self.hidden_size)
         self.hh = nn.GRU(self.hidden_size, self.hidden_size, bidirectional=False)
         self.hh_b = nn.GRU(self.hidden_size, self.hidden_size, bidirectional=False)
         self.tt = nn.GRU(self.da_hidden_size, self.da_hidden_size)
         self.max_pooling = ChannelPool(kernel_size=3)
+        self.attention = Attention()
 
     def forward(self, X, DA, hidden, da_hidden):
         X = self.xh(X)
-        output, _ = self.hh(X, hidden)
-        output_b, _ = self.hh_b(self._invert_tensor(X), hidden)
+        output, hidden_f = self.hh(X, hidden)
+        output_b, hidden_b = self.hh_b(self._invert_tensor(X), hidden)
         # output: (window_size, batch_size, hidden_size)
 
         if not DA is None:
@@ -152,7 +154,14 @@ class OrderReasoningLayer(nn.Module):
         else:
             da_output = None
 
-        output = torch.cat((self.max_pooling.forward(output), self.max_pooling.forward(output_b)), dim=1)
+        if self.attn:
+            output = output.permute(1, 0, 2)
+            output_b = output_b.permute(1, 0, 2)
+            output = self.attention(output, hidden_f)
+            output_b = self.attention(output_b, hidden_b)
+            output = torch.cat((output, output_b), dim=-1)
+        else:
+            output = torch.cat((self.max_pooling.forward(output), self.max_pooling.forward(output_b)), dim=1)
         # output: (batch_size, hidden_size * 2)
         return output, da_output
 
@@ -184,6 +193,14 @@ class Classifier(nn.Module):
         tmp = self.my(output)
         pred = torch.sigmoid(tmp)
         return pred
+
+class Attention(nn.Module):
+    def forward(self, output, final_state):
+        hidden = final_state.squeeze(0)
+        attn_weights = torch.bmm(output, hidden.unsqueeze(2)).squeeze(2)
+        soft_attn_weights = F.softmax(attn_weights, 1)
+        new_hidden_state = torch.bmm(output.transpose(1, 2), soft_attn_weights.unsqueeze(2)).squeeze(2)
+        return new_hidden_state
 
 
 class ChannelPool(nn.MaxPool1d):

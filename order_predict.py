@@ -51,7 +51,6 @@ class OrderPredictor(nn.Module):
                                                            hidden=self.order_reasoning_layer.initHidden(step_size),
                                                            da_hidden=self.order_reasoning_layer.initDAHidden(step_size))
         # output: (batch_size, hidden_size * 2)
-
         pred = self.classifier(XTarget, da_t_output).squeeze(1)
         Y = Y.squeeze(1)
         loss = self.criterion(pred, Y)
@@ -97,7 +96,7 @@ def train(experiment):
     else:
         da_encoder = None
     order_reasoning_layer = OrderReasoningLayer(encoder_hidden_size=config['SSN_ENC_HIDDEN'], hidden_size=config['SSN_REASONING_HIDDEN'],
-                                                da_hidden_size=config['SSN_DA_HIDDEN']).cuda()
+                                                da_hidden_size=config['SSN_DA_HIDDEN'], attn=True).cuda()
     classifier = Classifier(hidden_size=config['SSN_REASONING_HIDDEN'] * 2, middle_layer_size=config['SSN_MIDDLE_LAYER'], da_hidden_size=config['SSN_DA_HIDDEN'])
     predictor = OrderPredictor(utterance_pair_encoder=utterance_encoder, order_reasoning_layer=order_reasoning_layer,
                                da_encoder=da_encoder, classifier=classifier, criterion=nn.BCELoss(), config=config).cuda()
@@ -224,25 +223,25 @@ def evaluate(experiment):
     else:
         da_encoder = None
     order_reasoning_layer = OrderReasoningLayer(encoder_hidden_size=config['SSN_ENC_HIDDEN'], hidden_size=config['SSN_REASONING_HIDDEN'],
-                                                da_hidden_size=config['SSN_DA_HIDDEN']).cuda()
+                                                da_hidden_size=config['SSN_DA_HIDDEN'], attn=True).cuda()
     classifier = Classifier(hidden_size=config['SSN_REASONING_HIDDEN'] * 2, middle_layer_size=config['SSN_MIDDLE_LAYER'], da_hidden_size=config['SSN_DA_HIDDEN'])
     predictor = OrderPredictor(utterance_pair_encoder=utterance_pair_encoder, order_reasoning_layer=order_reasoning_layer,
                                da_encoder=da_encoder, classifier=classifier, criterion=nn.BCELoss(), config=config).cuda()
     predictor.load_state_dict(torch.load(os.path.join(config['log_dir'], 'orderpred_statevalidbest.model')))
 
     predictor.eval()
-    k = 0
     acc = []
-    indexes = [i for i in range(len(XU_test))]
+    indexes = [i for i in range(len(XTarget))]
     for _ in range(5):
         y_preds = []
         y_trues = []
+        k = 0
         while k < len(indexes):
             step_size = min(config['BATCH_SIZE'], len(indexes) - k)
             batch_idx = indexes[k : k + step_size]
             Xtarget = padding([XTarget[i] for i in batch_idx], pad_idx=utt_vocab.word2id['<PAD>'])
             if config['use_da']:
-                DAtarget = torch.tensor([DAtarget[i] for i in batch_idx]).cuda()
+                DAtarget = torch.tensor([DATarget[i] for i in batch_idx]).cuda()
             else:
                 DAtarget = None
             y = torch.tensor([Y[i] for i in batch_idx], dtype=torch.float).cuda()

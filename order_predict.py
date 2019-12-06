@@ -219,15 +219,15 @@ def evaluate(experiment):
     utterance_pair_encoder = UtteranceEncoder(utt_input_size=len(utt_vocab.word2id), embed_size=config['SSN_EMBED'],
                                               utterance_hidden=config['SSN_ENC_HIDDEN'], padding_idx=utt_vocab.word2id['<PAD>']).cuda()
     if config['use_da']:
-        da_pair_encoder = DAPairEncoder(da_hidden_size=config['SSN_DA_HIDDEN'], da_embed_size=config['SSN_DA_EMBED'], da_vocab_size=len(da_vocab.word2id)).cuda()
+        # da_pair_encoder = DAPairEncoder(da_hidden_size=config['SSN_DA_HIDDEN'], da_embed_size=config['SSN_DA_EMBED'], da_vocab_size=len(da_vocab.word2id)).cuda()
+        da_encoder = DAEncoder(da_input_size=len(da_vocab.word2id), da_embed_size=config['SSN_DA_EMBED'], da_hidden=config['SSN_DA_HIDDEN'])
     else:
-        da_pair_encoder = None
+        da_encoder = None
     order_reasoning_layer = OrderReasoningLayer(encoder_hidden_size=config['SSN_ENC_HIDDEN'], hidden_size=config['SSN_REASONING_HIDDEN'],
                                                 da_hidden_size=config['SSN_DA_HIDDEN']).cuda()
     classifier = Classifier(hidden_size=config['SSN_REASONING_HIDDEN'], middle_layer_size=config['SSN_MIDDLE_LAYER'], da_hidden_size=config['SSN_DA_HIDDEN'])
-    order_reasoning_layer.load_state_dict(torch.load(os.path.join(config['log_dir'], 'ord_rsn_statevalidbest.model')))
     predictor = OrderPredictor(utterance_pair_encoder=utterance_pair_encoder, order_reasoning_layer=order_reasoning_layer,
-                               da_pair_encoder=da_pair_encoder, classifier=classifier, criterion=nn.BCELoss(), config=config).cuda()
+                               da_encoder=da_encoder, classifier=classifier, criterion=nn.BCELoss(), config=config).cuda()
     predictor.load_state_dict(torch.load(os.path.join(config['log_dir'], 'orderpred_statevalidbest.model')))
 
     predictor.eval()

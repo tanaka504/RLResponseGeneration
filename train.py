@@ -12,7 +12,7 @@ def parse():
     parser = argparse.ArgumentParser()
     parser.add_argument('--expr', '-e', default='DAonly', help='input experiment config')
     parser.add_argument('--gpu', '-g', type=int, default=0, help='input gpu num')
-    parser.add_argument('--epoch', default=10)
+    parser.add_argument('--epoch', default='trainbest')
     args = parser.parse_args()
     if torch.cuda.is_available():
         torch.cuda.set_device(args.gpu)
@@ -157,7 +157,7 @@ def train(experiment, fine_tuning=False):
             k += step_size
 
         print()
-        valid_loss, valid_reward = validation(XU_valid=XU_valid, YU_valid=YU_valid, model=model, utt_context=utt_context, utt_vocab=utt_vocab)
+        valid_loss, valid_reward = validation(XU_valid=XU_valid, YU_valid=YU_valid, model=model, utt_context=utt_context, utt_vocab=utt_vocab, config=config)
 
         def save_model(filename):
             torch.save(utt_encoder.state_dict(), os.path.join(config['log_dir'], 'utt_enc_state{}.model'.format(filename)))
@@ -203,23 +203,41 @@ def train(experiment, fine_tuning=False):
     print('Finish training | exec time: %.4f [sec]' % (time.time() - start))
 
 
-def validation(XU_valid, YU_valid, model, utt_context, utt_vocab):
+def validation(XU_valid, YU_valid, model, utt_context, utt_vocab, config):
     model.eval()
-    utt_context_hidden = utt_context.initHidden(1)
+
     criterion = nn.CrossEntropyLoss(ignore_index=utt_vocab.word2id['<PAD>'], reduce=False)
     total_loss = 0
+    k = 0
+    batch_size = config['BATCH_SIZE']
+    indexes = [i for i in range(len(XU_valid))]
+    random.shuffle(indexes)
 
-    for seq_idx in range(len(XU_valid)):
-        XU_seq = XU_valid[seq_idx]
-        YU_seq = YU_valid[seq_idx]
-
-        for i in range(0, len(XU_seq)):
-            XU_tensor = torch.tensor([XU_seq[i]]).cuda()
-            YU_tensor = torch.tensor([YU_seq[i]]).cuda()
-
-            loss, utt_context_hidden, reward = model.forward(X_utt=XU_tensor, Y_utt=YU_tensor,
+    while k < len(indexes):
+        step_size = min(batch_size, len(indexes) - k)
+        batch_idx = indexes[k: k + step_size]
+        XU_seq = [XU_valid[seq_idx] for seq_idx in batch_idx]
+        YU_seq = [YU_valid[seq_idx] for seq_idx in batch_idx]
+        utt_context_hidden = utt_context.initHidden(step_size)
+        max_conv_len = max(len(s) for s in XU_seq)
+        for i in range(0, max_conv_len):
+            max_xseq_len = max(len(XU[i]) + 1 for XU in XU_seq)
+            max_yseq_len = max(len(YU[i]) + 1 for YU in YU_seq)
+            for ci in range(len(XU_seq)):
+                XU_seq[ci][i] = XU_seq[ci][i] + [utt_vocab.word2id['<PAD>']] * (max_xseq_len - len(XU_seq[ci][i]))
+                YU_seq[ci][i] = YU_seq[ci][i] + [utt_vocab.word2id['<PAD>']] * (max_yseq_len - len(YU_seq[ci][i]))
+            XU_tensor = torch.tensor([x[i] for x in XU_seq]).cuda()
+            YU_tensor = torch.tensor([y[i] for y in YU_seq]).cuda()
+            loss, utt_context_hidden, reward, pred_seq = model.forward(X_utt=XU_tensor, Y_utt=YU_tensor,
                                                   utt_context_hidden=utt_context_hidden, criterion=criterion, step_size=1, last=False)
             total_loss += loss
+        k += step_size
+    sample_idx = random.choice([i for i in range(len(XU_seq))], 3)
+    for idx in sample_idx:
+        context = ' '.join([utt_vocab.id2word[wid] for wid in XU_seq[idx][-1]])
+        hyp = ' '.join([utt_vocab.id2word[wid] for wid in pred_seq[idx]])
+        print('context:\t{}'.format(context))
+        print('hyp:\t{}'.format(hyp))
     return total_loss, reward
 
 if __name__ == '__main__':

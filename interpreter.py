@@ -29,7 +29,7 @@ def interpreter(experiment):
     utt_context = UtteranceContextEncoder(utterance_hidden_size=config['UTT_CONTEXT']).to(device)
     utt_context.load_state_dict(torch.load(os.path.join(config['log_dir'], 'utt_context_state{}.model'.format(args.epoch))))
 
-    model = HRED(utt_vocab=utt_vocab, device=device,
+    model = HRED(utt_vocab=utt_vocab,
                 utt_encoder=utt_encoder, utt_context=utt_context, utt_decoder=utt_decoder, config=config).to(device)
 
     utt_context_hidden = utt_context.initHidden(1) if config['use_uttcontext'] else None
@@ -37,32 +37,22 @@ def interpreter(experiment):
     print('ok, i\'m ready.')
 
     while 1:
-
         utterance = input('>> ').lower()
-
         if utterance == 'exit' or utterance == 'bye':
             print('see you again.')
             break
-
         XU_seq = en_preprocess(utterance)
         XU_seq = ['<BOS>'] + XU_seq + ['<EOS>']
         XU_seq = [utt_vocab.word2id[word] if word in utt_vocab.word2id.keys() else utt_vocab.word2id['<UNK>'] for word in XU_seq]
-
         # X_tensor = torch.tensor([[DA]]).to(device)
-
-        XU_tensor = torch.tensor([XU_seq]).to(device)
-
-
+        XU_tensor = torch.tensor([XU_seq]).cuda()
         pred_seq, utt_context_hidden = model.predict(X_utt=XU_tensor, utt_context_hidden=utt_context_hidden)
-
-
         print(' '.join([utt_vocab.id2word[wid] for wid in pred_seq]))
         print()
 
     return 0
 
 if __name__ == '__main__':
-    global args, device
-    args, device = parse()
+    args = parse()
     interpreter(args.expr)
 

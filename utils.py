@@ -151,11 +151,7 @@ def calc_bleu(refs, hyps):
 
 
 def create_traindata(config, prefix='train'):
-    if config['lang'] == 'en':
-        # file_pattern = re.compile(r'^sw_{}_([0-9]*?)\.jsonlines$'.format(prefix))
-        file_pattern = re.compile(r'^OpenSubtitles\_{}\_([0-9]*?)\.jsonlines$'.format(prefix))
-    elif config['lang'] == 'ja':
-        file_pattern = re.compile(r'^data([0-9]*?)\_{}\_([0-9]*?)\.jsonlines$'.format(prefix))
+    file_pattern = re.compile(config['corpus_pattern'].format(prefix))
     files = [f for f in os.listdir(config['train_path']) if file_pattern.match(f)]
     da_posts = []
     da_cmnts = []

@@ -63,9 +63,8 @@ class OrderPredictor(nn.Module):
 
 def train(experiment):
     config = initialize_env(experiment)
-    valid = 'valid' if config['lang'] == 'en' else 'dev'
     XD_train, YD_train, XU_train, YU_train = create_traindata(config=config, prefix='train')
-    XD_valid, YD_valid, XU_valid, YU_valid = create_traindata(config=config, prefix=valid)
+    XD_valid, YD_valid, XU_valid, YU_valid = create_traindata(config=config, prefix='valid')
     if os.path.exists(os.path.join(config['log_root'], 'da_vocab.dict')):
         da_vocab = da_Vocab(config, create_vocab=False)
         utt_vocab = utt_Vocab(config, create_vocab=False)
@@ -77,10 +76,10 @@ def train(experiment):
     filler_tag = ['acknowledge_(backchannel)', 'backchannel_in_question_form'] if config['lang'] == 'en' else ['フィラー', 'あいづち']
     XU_train, XD_train = zip(*[(conv, das) for conv, das in zip(XU_train, XD_train) if not das[-1] in filler_tag])
     XU_valid, XD_valid = zip(*[(conv, das) for conv, das in zip(XU_valid, XD_valid) if not das[-1] in filler_tag])
-    XD_train = da_vocab.tokenize(XD_train)
-    XD_valid = da_vocab.tokenize(XD_valid)
-    XU_train = utt_vocab.tokenize(XU_train)
-    XU_valid = utt_vocab.tokenize(XU_valid)
+    XD_train = da_vocab.tokenize(XD_train)[:50000]
+    XD_valid = da_vocab.tokenize(XD_valid)[:50000]
+    XU_train = utt_vocab.tokenize(XU_train)[:50000]
+    XU_valid = utt_vocab.tokenize(XU_valid)[:50000]
     XTarget, DATarget, Y = make_triple(XU_train, XD_train, config=config)
     print('Finish load data')
 

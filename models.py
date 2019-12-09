@@ -6,15 +6,17 @@ from queue import PriorityQueue
 
 
 class RL(nn.Module):
-    def __init__(self, utt_vocab, utt_encoder, utt_context, utt_decoder, config):
+    def __init__(self, utt_vocab, utt_encoder, utt_context, utt_decoder, nli_model, ssn_model, config):
         super(RL, self).__init__()
         self.utt_vocab = utt_vocab
         self.utt_encoder = utt_encoder
         self.utt_context = utt_context
         self.utt_decoder = utt_decoder
+        self.nli_model = nli_model
+        self.ssn_model = ssn_model
         self.config = config
 
-    def forward(self, X_utt, Y_utt, utt_context_hidden, step_size, criterion, last):
+    def forward(self, X_utt, Y_utt, context, utt_context_hidden, step_size, criterion, last):
         """
         :param X_utt: context utterance tensor (batch_size, seq_len, 1)
         :param Y_utt: reference utterance tensor (batch_size, seq_len, 1)
@@ -49,7 +51,7 @@ class RL(nn.Module):
         pred_seq = [s for s in pred_seq.transpose(0,1).data.tolist()]
         base_seq = [[w[0] for w in s] for s in base_seq.transpose(0,1).data.tolist()]
         ref_seq = [s for s in Y_utt.data.tolist()]
-        context = [s for s in X_utt.data.tolist()]
+        # context = [s for s in X_utt.data.tolist()]
         reward = torch.tensor(self.reward(pred_seq, ref_seq, context)).cuda()
         b = torch.tensor(self.reward(base_seq, ref_seq, context)).cuda()
         print('sample: {}, base: {}'.format(reward, b))
@@ -224,7 +226,7 @@ class HRED(nn.Module):
 
     def forward(self,X_utt, Y_utt, step_size,
                 utt_context_hidden,
-                criterion, last, baseline_outputs=None):
+                criterion, last, context=None):
         loss = 0
 
         # Encoding

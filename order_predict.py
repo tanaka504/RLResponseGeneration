@@ -96,7 +96,7 @@ def train(experiment):
         da_encoder = None
     order_reasoning_layer = OrderReasoningLayer(encoder_hidden_size=config['SSN_ENC_HIDDEN'], hidden_size=config['SSN_REASONING_HIDDEN'],
                                                 da_hidden_size=config['SSN_DA_HIDDEN'], attn=True).cuda()
-    classifier = Classifier(hidden_size=config['SSN_REASONING_HIDDEN'] * 2, middle_layer_size=config['SSN_MIDDLE_LAYER'], da_hidden_size=config['SSN_DA_HIDDEN'])
+    classifier = Classifier(hidden_size=config['SSN_REASONING_HIDDEN'] * 2, middle_layer_size=config['SSN_MIDDLE_LAYER'], da_hidden_size=config['SSN_DA_HIDDEN']).cuda()
     predictor = OrderPredictor(utterance_pair_encoder=utterance_encoder, order_reasoning_layer=order_reasoning_layer,
                                da_encoder=da_encoder, classifier=classifier, criterion=nn.BCELoss(), config=config).cuda()
     model_opt = optim.Adam(predictor.parameters(), lr=lr, weight_decay=1e-5)

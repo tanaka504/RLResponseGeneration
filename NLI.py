@@ -16,7 +16,7 @@ from transformers.data.processors.utils import InputExample
 from NLI_processor import processors, output_modes
 
 
-class NLI:
+class NLI(nn.Module):
     def __init__(self):
         self.model = BertForSequenceClassification.from_pretrained('./data/model_en/bert_fine_tuning').cuda()
         self.tokenizer = BertTokenizer.from_pretrained('./data/model_en/bert_fine_tuning')

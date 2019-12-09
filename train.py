@@ -6,6 +6,8 @@ from utils import *
 from nn_blocks import *
 import argparse
 import random
+from NLI import NLI
+from order_predict import OrderPredictor
 
 
 def parse():
@@ -88,14 +90,26 @@ def train(experiment, fine_tuning=False):
         utt_context.load_state_dict(torch.load(os.path.join(config['log_root'], pretrain_model, 'utt_context_state{}.model'.format(args.epoch))), strict=False)
 
     if 'HRED' in args.expr:
+
         model = HRED(utt_vocab=utt_vocab,
                      utt_encoder=utt_encoder, utt_context=utt_context,
                      utt_decoder=utt_decoder, config=config).cuda()
     else:
+        ord_encoder = UtteranceEncoder(utt_input_size=len(utt_vocab.word2id), embed_size=config['SSN_EMBED'],
+                                       utterance_hidden=config['SSN_ENC_HIDDEN'], padding_idx=utt_vocab.word2id['<PAD>']).cuda()
+        ord_reasoning = OrderReasoningLayer(encoder_hidden_size=config['SSN_ENC_HIDDEN'], hidden_size=config['SSN_REASONING_HIDDEN'],
+                                            da_hidden_size=config['SSN_DA_HIDDEN'], attn=False).cuda()
+        ord_classifier = Classifier(hidden_size=config['SSN_REASONING_HIDDEN'] * 2, middle_layer_size=config['SSN_MIDDLE_LAYER'], da_hidden_size=config['SSN_DA_HIDDEN']).cuda()
+        ord_predictor = OrderPredictor(utterance_pair_encoder=ord_encoder, order_reasoning_layer=ord_reasoning,
+                                       da_encoder=None, classifier=ord_classifier, criterion=nn.BCELoss(), config=config).cuda()
+        ord_predictor.load_state_dict(torch.load(os.path.join(config['log_root'], 'order_predict', 'orderpred_statevalidbest.model')))
+        nli_model = NLI().cuda()
         model = RL(utt_vocab=utt_vocab,
-                utt_encoder=utt_encoder,
-                utt_context=utt_context,
-                utt_decoder=utt_decoder, config=config).cuda()
+                   utt_encoder=utt_encoder,
+                   utt_context=utt_context,
+                   utt_decoder=utt_decoder,
+                   nli_model=nli_model, ssn_model=ord_predictor,
+                   config=config).cuda()
     print('Success construct model...')
     criterion = nn.CrossEntropyLoss(ignore_index=utt_vocab.word2id['<PAD>'], reduce=False)
     print('---start training---')
@@ -142,9 +156,10 @@ def train(experiment, fine_tuning=False):
                 # XU_tensor = (batch_size, seq_len)
                 last = True if i == max_conv_len - 1 else False
                 if last:
-                    loss, utt_context_hidden, _ = model.forward(X_utt=XU_tensor, Y_utt=YU_tensor, step_size=step_size,
-                                                         utt_context_hidden=utt_context_hidden,
-                                                         criterion=criterion, last=last)
+                    loss, utt_context_hidden, _ = model.forward(X_utt=XU_tensor, Y_utt=YU_tensor, context=XU_seq,
+                                                                step_size=step_size,
+                                                                utt_context_hidden=utt_context_hidden,
+                                                                criterion=criterion, last=last)
                     print_total_loss += loss
                     plot_total_loss += loss
                     utt_encoder_opt.step()
@@ -229,7 +244,7 @@ def validation(XU_valid, YU_valid, model, utt_context, utt_vocab, config):
             XU_tensor = torch.tensor([x[i] for x in XU_seq]).cuda()
             YU_tensor = torch.tensor([y[i] for y in YU_seq]).cuda()
             loss, utt_context_hidden, reward, pred_seq = model.forward(X_utt=XU_tensor, Y_utt=YU_tensor,
-                                                  utt_context_hidden=utt_context_hidden, criterion=criterion, step_size=1, last=False)
+                                                  utt_context_hidden=utt_context_hidden, criterion=criterion, step_size=step_size, last=False)
             total_loss += loss
         k += step_size
     sample_idx = random.choice([i for i in range(len(XU_seq))], 3)

@@ -1,17 +1,12 @@
-import torch
 import torch.nn as nn
-from torch import optim
-from train import initialize_env, parse
-import time, random
+from train import parse
 from utils import *
 from sklearn.metrics import accuracy_score
 from pyknp import Juman
 from torch.utils.data import DataLoader, SequentialSampler, TensorDataset
-from torch.utils.data.distributed import DistributedSampler
 from transformers import glue_convert_examples_to_features as convert_examples_to_features
-from transformers import glue_compute_metrics as compute_metrics
 from tqdm import tqdm
-from transformers import BertConfig, BertForSequenceClassification, BertTokenizer
+from transformers import BertForSequenceClassification, BertTokenizer
 from transformers.data.processors.utils import InputExample
 from NLI_processor import processors, output_modes
 

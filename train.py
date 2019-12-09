@@ -256,7 +256,6 @@ def validation(XU_valid, YU_valid, model, utt_context, utt_vocab, config):
     return total_loss, reward
 
 if __name__ == '__main__':
-    global args
     args = parse()
     fine_tuning = False if 'pretrain' in args.expr else True
     train(args.expr, fine_tuning=fine_tuning)

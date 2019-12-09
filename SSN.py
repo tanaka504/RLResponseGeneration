@@ -128,10 +128,10 @@ def train(experiment):
     _train_loss = None
     early_stop = 0
     utterance_pairs = [[XU + [utt_vocab.word2id['<SEP>']] + YU for XU, YU in zip(XU_train[conv_idx], YU_train[conv_idx])] for conv_idx in range(len(XU_train))]
-    utterance_pairs = [[batch[pi] for pi in range(0, len(batch), 2)] for batch in utterance_pairs]
+    utterance_pairs = [[batch[pi] for pi in range(0, len(batch), 2)] for batch in utterance_pairs][:50000]
     if config['use_da']:
         da_pairs = [[[XD, YD] for XD, YD in zip(XD_train[conv_idx], YD_train[conv_idx])] for conv_idx in range(len(XD_train))]
-        da_pairs = [[batch[pi] for pi in range(0, len(batch), 2)] for batch in da_pairs]
+        da_pairs = [[batch[pi] for pi in range(0, len(batch), 2)] for batch in da_pairs][:50000]
     else:
         da_pairs = None
 
@@ -386,7 +386,6 @@ def padding(batch, pad_idx):
 
 
 if __name__ == '__main__':
-    global args
     args = parse()
 
     # train(args.expr)

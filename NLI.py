@@ -1,5 +1,4 @@
 import torch.nn as nn
-from train import parse
 from utils import *
 from sklearn.metrics import accuracy_score
 from pyknp import Juman
@@ -116,6 +115,7 @@ def main():
     print(accuracy_score(y_pred=preds, y_true=[label2id[t] for t in label[:1000]]))
 
 if __name__ == '__main__':
+    from train import parse
     args = parse()
     main()
 

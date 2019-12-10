@@ -3,7 +3,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import optim
 from nn_blocks import *
-from train import initialize_env, parse
 from utils import *
 import time, random
 from sklearn.metrics import accuracy_score, f1_score

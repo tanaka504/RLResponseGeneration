@@ -10,33 +10,6 @@ from NLI import NLI
 from order_predict import OrderPredictor
 
 
-def parse():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--expr', '-e', default='DAonly', help='input experiment config')
-    parser.add_argument('--gpu', '-g', type=int, default=0, help='input gpu num')
-    parser.add_argument('--epoch', default='trainbest')
-    args = parser.parse_args()
-    if torch.cuda.is_available():
-        torch.cuda.set_device(args.gpu)
-    return args
-
-
-def initialize_env(name):
-    corpus_path = {
-        'jaist': {'path': './data/corpus/jaist', 'pattern': r'^data([0-9]*?)\_{}\_([0-9]*?)\.jsonlines$'},
-        'swda': {'path': './data/corpus/json_data', 'pattern': r'^sw_{}_([0-9]*?)\.jsonlines$'},
-        'opensubtitles': {'path': './data/corpus/OpenSubtitles', 'pattern': r'^OpenSubtitles\_{}\_([0-9]*?)\.jsonlines$'},
-        'dailydialog': {'path': './data/corpus/dailydialog', 'pattern': r'^DailyDialog\_{}\_([0-9]*?)\.jsonlines$'}
-    }
-    config = pyhocon.ConfigFactory.parse_file('experiments.conf')[name]
-    config['log_dir'] = os.path.join(config['log_root'], name)
-    config['train_path'] = corpus_path[config['corpus']]['path']
-    config['corpus_pattern'] = corpus_path[config['corpus']]['pattern']
-    if not os.path.exists(config['log_dir']):
-        os.makedirs(config['log_dir'])
-    return config
-
-
 def train(experiment, fine_tuning=False):
     print('loading setting "{}"...'.format(experiment))
     config = initialize_env(experiment)

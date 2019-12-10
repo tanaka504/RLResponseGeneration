@@ -425,17 +425,17 @@ class seq2seq(nn.Module):
             _, base_topi = logits.topk(1)
             next_token = torch.multinomial(probs, 1).squeeze(-1)
             pred_seq.append(next_token)
-            base_seq.append(base_topi)
+            base_seq.append(base_topi.squeeze(-1))
             if self.config['RL']:
-                CE_loss += self.criterion(probs.view(-1, len(self.tgt_vocab.word2id)), Y[:, j+1])
+                CE_loss += self.criterion(probs.view(-1, len(self.utt_vocab.word2id)), Y[:, j+1])
             else:
-                base_loss += self.criterion(logits.view(-1, len(self.tgt_vocab.word2id)), Y[:, j+1])
+                base_loss += self.criterion(logits.view(-1, len(self.utt_vocab.word2id)), Y[:, j+1])
 
         if self.config['RL']:
             pred_seq = torch.stack(pred_seq)
             base_seq = torch.stack(base_seq)
             pred_seq = [s for s in pred_seq.transpose(0,1).data.tolist()]
-            base_seq = [[w[0] for w in s] for s in base_seq.transpose(0,1).data.tolist()]
+            base_seq = [s for s in base_seq.transpose(0,1).data.tolist()]
             ref_seq = [s for s in Y.data.tolist()]
             context = [s for s in X.data.tolist()]
             reward = self.reward(hyp=pred_seq, ref=ref_seq, context=context)
@@ -446,11 +446,12 @@ class seq2seq(nn.Module):
         else:
             reward = 0
             loss = base_loss.mean()
+            pred_seq = torch.stack(base_seq).transpose(0, 1).data.tolist()
         torch.nn.utils.clip_grad_norm_(self.parameters(), self.config['clip'])
 
         if self.training:
             loss.backward()
-        return loss.item(), reward
+        return loss.item(), reward, pred_seq
 
     def predict(self, X, step_size):
         with torch.no_grad():

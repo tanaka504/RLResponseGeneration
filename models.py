@@ -400,11 +400,10 @@ class HRED(nn.Module):
 
 
 class seq2seq(nn.Module):
-    def __init__(self, encoder, decoder, criterion, src_vocab, tgt_vocab, config):
+    def __init__(self, encoder, decoder, criterion, utt_vocab, config):
         super(seq2seq, self).__init__()
         self.criterion = criterion
-        self.src_vocab = src_vocab
-        self.tgt_vocab = tgt_vocab
+        self.utt_vocab = utt_vocab
         self.encoder = encoder
         self.decoder = decoder
         self.config = config
@@ -466,7 +465,7 @@ class seq2seq(nn.Module):
         return r_bleu
 
     def _greedy_decode(self, prev_words, decoder, decoder_hidden):
-        EOS_token = self.tgt_vocab.word2id['<EOS>']
+        EOS_token = self.utt_vocab.word2id['<EOS>']
         pred_seq = []
         for _ in range(self.config['max_len']):
             preds, decoder_hidden, _ = decoder(prev_words, decoder_hidden)
@@ -478,7 +477,7 @@ class seq2seq(nn.Module):
         return pred_seq, decoder_hidden
 
     def _sample_decode(self, prev_words, decoder, decoder_hidden):
-        EOS_token = self.tgt_vocab.word2id['<EOS>']
+        EOS_token = self.utt_vocab.word2id['<EOS>']
         pred_seq = []
         for _ in range(self.config['max_len']):
             logits, decoder_hidden, _ = decoder(prev_words, decoder_hidden)
@@ -522,8 +521,8 @@ class seq2seq(nn.Module):
         return logits
 
     def _beam_decode(self, decoder, decoder_hiddens, config, encoder_outputs=None):
-        BOS_token = self.tgt_vocab.word2id['<BOS>']
-        EOS_token = self.tgt_vocab.word2id['<EOS>']
+        BOS_token = self.utt_vocab.word2id['<BOS>']
+        EOS_token = self.utt_vocab.word2id['<EOS>']
         decoded_batch = []
         topk = 1
         # batch対応

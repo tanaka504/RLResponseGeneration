@@ -85,9 +85,9 @@ def train(experiment, fine_tuning=False):
 
     if fine_tuning:
         print('fine tuning')
-        utt_encoder.load_state_dict(torch.load(os.path.join(config['log_root'], pretrain_model, 'utt_enc_state{}.model'.format(args.epoch))), strict=False)
-        utt_decoder.load_state_dict(torch.load(os.path.join(config['log_root'], pretrain_model, 'utt_dec_state{}.model'.format(args.epoch))), strict=False)
-        utt_context.load_state_dict(torch.load(os.path.join(config['log_root'], pretrain_model, 'utt_context_state{}.model'.format(args.epoch))), strict=False)
+        utt_encoder.load_state_dict(torch.load(os.path.join(config['log_root'], pretrain_model, 'utt_enc_state{}.model'.format(args.epoch)), map_location=lambda storage, loc: storage))
+        utt_decoder.load_state_dict(torch.load(os.path.join(config['log_root'], pretrain_model, 'utt_dec_state{}.model'.format(args.epoch)), map_location=lambda storage, loc: storage))
+        utt_context.load_state_dict(torch.load(os.path.join(config['log_root'], pretrain_model, 'utt_context_state{}.model'.format(args.epoch)), map_location=lambda storage, loc: storage))
 
     if 'HRED' in args.expr:
 
@@ -247,7 +247,7 @@ def validation(XU_valid, YU_valid, model, utt_context, utt_vocab, config):
                                                   utt_context_hidden=utt_context_hidden, criterion=criterion, step_size=step_size, last=False)
             total_loss += loss
         k += step_size
-    sample_idx = random.choice([i for i in range(len(XU_seq))], 3)
+    sample_idx = random.sample([i for i in range(len(XU_seq))], 3)
     for idx in sample_idx:
         context = ' '.join([utt_vocab.id2word[wid] for wid in XU_seq[idx][-1]])
         hyp = ' '.join([utt_vocab.id2word[wid] for wid in pred_seq[idx]])

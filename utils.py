@@ -59,13 +59,11 @@ class da_Vocab:
     def construct(self):
         vocab = {'<PAD>': 0, }
         vocab_count = {}
-
         for token in self.das:
             if token in vocab_count:
                 vocab_count[token] += 1
             else:
                 vocab_count[token] = 1
-
         for k, _ in sorted(vocab_count.items(), key=lambda x: -x[1]):
             vocab[k] = len(vocab)
         self.word2id = vocab

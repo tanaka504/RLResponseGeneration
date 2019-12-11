@@ -4,7 +4,6 @@ import operator
 from queue import PriorityQueue
 
 
-
 class RL(nn.Module):
     def __init__(self, utt_vocab, utt_encoder, utt_context, utt_decoder, nli_model, ssn_model, config):
         super(RL, self).__init__()
@@ -400,13 +399,15 @@ class HRED(nn.Module):
 
 
 class seq2seq(nn.Module):
-    def __init__(self, encoder, decoder, criterion, utt_vocab, config):
+    def __init__(self, encoder, decoder, criterion, utt_vocab, da_vocab, reward_fn, config):
         super(seq2seq, self).__init__()
         self.criterion = criterion
         self.utt_vocab = utt_vocab
+        self.da_vocab = da_vocab
         self.encoder = encoder
         self.decoder = decoder
         self.config = config
+        self.reward_fn = reward_fn
 
     def forward(self, X, Y, step_size):
         CE_loss = 0
@@ -438,11 +439,12 @@ class seq2seq(nn.Module):
             base_seq = [s for s in base_seq.transpose(0,1).data.tolist()]
             ref_seq = [s for s in Y.data.tolist()]
             context = [s for s in X.data.tolist()]
-            reward = self.reward(hyp=pred_seq, ref=ref_seq, context=context)
-            b = self.reward(hyp=base_seq, ref=ref_seq, context=context)
+            reward = self.reward_fn.reward(hyp=pred_seq, ref=ref_seq, context=context, step_size=step_size)
+            b = self.reward_fn.reward(hyp=base_seq, ref=ref_seq, context=context, step_size=step_size)
             RL_loss = CE_loss * (reward - b)
             loss = CE_loss * self.config['lambda'] + RL_loss * (1 - self.config['lambda'])
             loss = loss.mean()
+            reward = reward.mean().item()
         else:
             reward = 0
             loss = base_loss.mean()
@@ -460,10 +462,6 @@ class seq2seq(nn.Module):
             encoder_hidden = torch.cat((encoder_hidden[0, :, :], encoder_hidden[1, :, :]), dim=-1).unsqueeze(0)
             pred_seq, _ = self._beam_decode(decoder=self.decoder, decoder_hiddens=encoder_hidden, config=self.config)
         return pred_seq
-
-    def reward(self, hyp, ref, context):
-        r_bleu = calc_bleu(ref, hyp)
-        return r_bleu
 
     def _greedy_decode(self, prev_words, decoder, decoder_hidden):
         EOS_token = self.utt_vocab.word2id['<EOS>']

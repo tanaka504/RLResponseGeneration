@@ -4,21 +4,22 @@ from sklearn.metrics import accuracy_score
 from pyknp import Juman
 from torch.utils.data import DataLoader, SequentialSampler, TensorDataset
 from transformers import glue_convert_examples_to_features as convert_examples_to_features
-from tqdm import tqdm
 from transformers import BertForSequenceClassification, BertTokenizer
 from transformers.data.processors.utils import InputExample
 from NLI_processor import processors, output_modes
+import torch.nn.functional as F
 
 
 class NLI(nn.Module):
     def __init__(self):
+        super(NLI, self).__init__()
         self.model = BertForSequenceClassification.from_pretrained('./data/model_en/bert_fine_tuning').cuda()
         self.tokenizer = BertTokenizer.from_pretrained('./data/model_en/bert_fine_tuning')
 
     def predict(self, x1, x2):
         """
-        param x1: batch of sentence1 (batch_size, seq_len)
-        param x2: batch of sentence2 (batch_size, seq_len)
+        param x1: batch of sentence1 List(batch_size, seq_len)
+        param x2: batch of sentence2 List(batch_size, seq_len)
         """
         output_dir = './data/model_en/bert_fine_tuning'
         # Loop to handle MNLI double evaluation (matched, mis-matched)
@@ -39,10 +40,9 @@ class NLI(nn.Module):
             nb_eval_steps = 0
             preds = None
             out_label_ids = None
-            for batch in tqdm(eval_dataloader, desc="Evaluating"):
+            for batch in eval_dataloader:
                 self.model.eval()
                 batch = tuple(t.cuda() for t in batch)
-
                 with torch.no_grad():
                     inputs = {'input_ids': batch[0],
                               'attention_mask': batch[1],
@@ -50,6 +50,7 @@ class NLI(nn.Module):
                     inputs['token_type_ids'] = batch[2]
                     outputs = self.model(**inputs)
                     tmp_eval_loss, logits = outputs[:2]
+                    logits = F.softmax(logits, dim=-1)
 
                     eval_loss += tmp_eval_loss.mean().item()
                 nb_eval_steps += 1
@@ -59,7 +60,7 @@ class NLI(nn.Module):
                 else:
                     preds = np.append(preds, logits.detach().cpu().numpy(), axis=0)
                     out_label_ids = np.append(out_label_ids, inputs['labels'].detach().cpu().numpy(), axis=0)
-        return preds
+        return np.array(preds)
 
     def load_and_cache_examples(self, x1, x2, task, tokenizer):
         processor = processors[task]()
@@ -115,7 +116,6 @@ def main():
     print(accuracy_score(y_pred=preds, y_true=[label2id[t] for t in label[:1000]]))
 
 if __name__ == '__main__':
-    from train import parse
     args = parse()
     main()
 

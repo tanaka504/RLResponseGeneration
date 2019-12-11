@@ -13,14 +13,18 @@ import copy
 
 
 class OrderPredictor(nn.Module):
-    def __init__(self, utterance_pair_encoder, da_encoder,
-                 order_reasoning_layer, classifier, criterion, config):
+    def __init__(self, utt_vocab, da_vocab, config):
         super(OrderPredictor, self).__init__()
-        self.utterance_pair_encoder = utterance_pair_encoder
-        self.da_encoder = da_encoder
-        self.order_reasoning_layer = order_reasoning_layer
-        self.classifier = classifier
-        self.criterion = criterion
+        self.utterance_pair_encoder = UtteranceEncoder(utt_input_size=len(utt_vocab.word2id), embed_size=config['SSN_EMBED'],
+                                              utterance_hidden=config['SSN_ENC_HIDDEN'], padding_idx=utt_vocab.word2id['<PAD>']).cuda()
+        if config['use_da']:
+            self.da_encoder = DAEncoder(da_input_size=len(da_vocab.word2id), da_embed_size=config['SSN_DA_EMBED'], da_hidden=config['SSN_DA_HIDDEN'])
+        else:
+            self.da_encoder = None
+        self.order_reasoning_layer = OrderReasoningLayer(encoder_hidden_size=config['SSN_ENC_HIDDEN'], hidden_size=config['SSN_REASONING_HIDDEN'],
+                                                da_hidden_size=config['SSN_DA_HIDDEN'], attn=True).cuda()
+        self.classifier = Classifier(hidden_size=config['SSN_REASONING_HIDDEN'] * 2, middle_layer_size=config['SSN_MIDDLE_LAYER'], da_hidden_size=config['SSN_DA_HIDDEN']).cuda()
+        self.criterion = nn.BCELoss()
         self.config = config
 
     def forward(self, XTarget, DATarget, Y, step_size):
@@ -58,6 +62,27 @@ class OrderPredictor(nn.Module):
             loss.backward()
         return loss.item(), pred.data.tolist()
 
+    def predict(self, XTarget, DATarget, step_size):
+        with torch.no_grad():
+            utterance_pair_hidden = self.utterance_pair_encoder.initHidden(step_size)
+            for idx in range(len(XTarget)):
+                t_output, t_hidden = self.utterance_pair_encoder(X=XTarget[idx], hidden=utterance_pair_hidden)
+                XTarget[idx] = t_output
+            XTarget = torch.stack(XTarget).squeeze(2)
+            # Tensor:(window_size, batch_size, hidden_size)
+
+            if self.config['use_da']:
+                da_t_output = self.da_encoder(DATarget).permute(1,0,2)
+            else:
+                da_t_output = None
+            # DATensor: (batch_size, window_size, hidden_size)
+            XTarget, da_t_output = self.order_reasoning_layer(X=XTarget, DA=da_t_output,
+                                                               hidden=self.order_reasoning_layer.initHidden(step_size),
+                                                               da_hidden=self.order_reasoning_layer.initDAHidden(step_size))
+            # output: (batch_size, hidden_size * 2)
+            pred = self.classifier(XTarget, da_t_output).squeeze(1)
+        return pred
+
 
 
 def train(experiment):
@@ -86,18 +111,7 @@ def train(experiment):
     batch_size = config['BATCH_SIZE']
     print_total_loss = 0
 
-    utterance_encoder = UtteranceEncoder(utt_input_size=len(utt_vocab.word2id), embed_size=config['SSN_EMBED'],
-                                              utterance_hidden=config['SSN_ENC_HIDDEN'], padding_idx=utt_vocab.word2id['<PAD>']).cuda()
-    if config['use_da']:
-        # da_pair_encoder = DAPairEncoder(da_hidden_size=config['SSN_DA_HIDDEN'], da_embed_size=config['SSN_DA_EMBED'], da_vocab_size=len(da_vocab.word2id)).cuda()
-        da_encoder = DAEncoder(da_input_size=len(da_vocab.word2id), da_embed_size=config['SSN_DA_EMBED'], da_hidden=config['SSN_DA_HIDDEN'])
-    else:
-        da_encoder = None
-    order_reasoning_layer = OrderReasoningLayer(encoder_hidden_size=config['SSN_ENC_HIDDEN'], hidden_size=config['SSN_REASONING_HIDDEN'],
-                                                da_hidden_size=config['SSN_DA_HIDDEN'], attn=True).cuda()
-    classifier = Classifier(hidden_size=config['SSN_REASONING_HIDDEN'] * 2, middle_layer_size=config['SSN_MIDDLE_LAYER'], da_hidden_size=config['SSN_DA_HIDDEN']).cuda()
-    predictor = OrderPredictor(utterance_pair_encoder=utterance_encoder, order_reasoning_layer=order_reasoning_layer,
-                               da_encoder=da_encoder, classifier=classifier, criterion=nn.BCELoss(), config=config).cuda()
+    predictor = OrderPredictor(utt_vocab=utt_vocab, da_vocab=da_vocab, config=config).cuda()
     model_opt = optim.Adam(predictor.parameters(), lr=lr, weight_decay=1e-5)
     print('total parameters: ', count_parameters(predictor))
 
@@ -213,44 +227,30 @@ def evaluate(experiment):
     XU_test = utt_vocab.tokenize(XU_test)
     XTarget, DATarget, Y = make_triple(XU_test, XD_test, config=config)
 
-    utterance_pair_encoder = UtteranceEncoder(utt_input_size=len(utt_vocab.word2id), embed_size=config['SSN_EMBED'],
-                                              utterance_hidden=config['SSN_ENC_HIDDEN'], padding_idx=utt_vocab.word2id['<PAD>']).cuda()
-    if config['use_da']:
-        # da_pair_encoder = DAPairEncoder(da_hidden_size=config['SSN_DA_HIDDEN'], da_embed_size=config['SSN_DA_EMBED'], da_vocab_size=len(da_vocab.word2id)).cuda()
-        da_encoder = DAEncoder(da_input_size=len(da_vocab.word2id), da_embed_size=config['SSN_DA_EMBED'], da_hidden=config['SSN_DA_HIDDEN'])
-    else:
-        da_encoder = None
-    order_reasoning_layer = OrderReasoningLayer(encoder_hidden_size=config['SSN_ENC_HIDDEN'], hidden_size=config['SSN_REASONING_HIDDEN'],
-                                                da_hidden_size=config['SSN_DA_HIDDEN'], attn=True).cuda()
-    classifier = Classifier(hidden_size=config['SSN_REASONING_HIDDEN'] * 2, middle_layer_size=config['SSN_MIDDLE_LAYER'], da_hidden_size=config['SSN_DA_HIDDEN'])
-    predictor = OrderPredictor(utterance_pair_encoder=utterance_pair_encoder, order_reasoning_layer=order_reasoning_layer,
-                               da_encoder=da_encoder, classifier=classifier, criterion=nn.BCELoss(), config=config).cuda()
+    predictor = OrderPredictor(utt_vocab=utt_vocab, da_vocab=da_vocab, config=config).cuda()
     predictor.load_state_dict(torch.load(os.path.join(config['log_dir'], 'orderpred_statevalidbest.model')))
-
     predictor.eval()
-    acc = []
     indexes = [i for i in range(len(XTarget))]
-    for _ in range(5):
-        y_preds = []
-        y_trues = []
-        k = 0
-        while k < len(indexes):
-            step_size = min(config['BATCH_SIZE'], len(indexes) - k)
-            batch_idx = indexes[k : k + step_size]
-            Xtarget = padding([XTarget[i] for i in batch_idx], pad_idx=utt_vocab.word2id['<PAD>'])
-            if config['use_da']:
-                DAtarget = torch.tensor([DATarget[i] for i in batch_idx]).cuda()
-            else:
-                DAtarget = None
-            y = torch.tensor([Y[i] for i in batch_idx], dtype=torch.float).cuda()
-            loss, preds = predictor.forward(XTarget=Xtarget, DATarget=DAtarget, Y=y, step_size=step_size)
-            result = [0 if line < 0.5 else 1 for line in preds]
-            y_preds.extend(result)
-            y_trues.extend(y.data.tolist())
-            k += step_size
-        acc.append(accuracy_score(y_pred=y_preds, y_true=y_trues))
-    acc = np.array(acc)
-    print('Avg. of Accuracy: {} +- {}'.format(acc.mean(), conf_interval(acc)))
+    y_preds = []
+    y_trues = []
+    k = 0
+    while k < len(indexes):
+        step_size = min(config['BATCH_SIZE'], len(indexes) - k)
+        batch_idx = indexes[k : k + step_size]
+        Xtarget = padding([XTarget[i] for i in batch_idx], pad_idx=utt_vocab.word2id['<PAD>'])
+        if config['use_da']:
+            DAtarget = torch.tensor([DATarget[i] for i in batch_idx]).cuda()
+        else:
+            DAtarget = None
+        y = torch.tensor([Y[i] for i in batch_idx], dtype=torch.float).cuda()
+        loss, preds = predictor.forward(XTarget=Xtarget, DATarget=DAtarget, Y=y, step_size=step_size)
+        result = [0 if line < 0.5 else 1 for line in preds]
+        y_preds.extend(result)
+        y_trues.extend(y.data.tolist())
+        k += step_size
+    score = accuracy_score(y_pred=y_preds, y_true=y_trues)
+
+    print('Accuracy: {}'.format(score))
 
 
 def conf_interval(X):

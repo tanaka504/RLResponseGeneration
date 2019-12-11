@@ -1,10 +1,8 @@
 import time
-import pyhocon
 from torch import optim
 from models import *
 from utils import *
 from nn_blocks import *
-import argparse
 import random
 from NLI import NLI
 from order_predict import OrderPredictor
@@ -68,13 +66,7 @@ def train(experiment, fine_tuning=False):
                      utt_encoder=utt_encoder, utt_context=utt_context,
                      utt_decoder=utt_decoder, config=config).cuda()
     else:
-        ord_encoder = UtteranceEncoder(utt_input_size=len(utt_vocab.word2id), embed_size=config['SSN_EMBED'],
-                                       utterance_hidden=config['SSN_ENC_HIDDEN'], padding_idx=utt_vocab.word2id['<PAD>']).cuda()
-        ord_reasoning = OrderReasoningLayer(encoder_hidden_size=config['SSN_ENC_HIDDEN'], hidden_size=config['SSN_REASONING_HIDDEN'],
-                                            da_hidden_size=config['SSN_DA_HIDDEN'], attn=False).cuda()
-        ord_classifier = Classifier(hidden_size=config['SSN_REASONING_HIDDEN'] * 2, middle_layer_size=config['SSN_MIDDLE_LAYER'], da_hidden_size=config['SSN_DA_HIDDEN']).cuda()
-        ord_predictor = OrderPredictor(utterance_pair_encoder=ord_encoder, order_reasoning_layer=ord_reasoning,
-                                       da_encoder=None, classifier=ord_classifier, criterion=nn.BCELoss(), config=config).cuda()
+        ord_predictor = OrderPredictor(utt_vocab=utt_vocab, da_vocab=da_vocab, config=config).cuda()
         ord_predictor.load_state_dict(torch.load(os.path.join(config['log_root'], 'order_predict', 'orderpred_statevalidbest.model')))
         nli_model = NLI().cuda()
         model = RL(utt_vocab=utt_vocab,

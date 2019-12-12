@@ -16,9 +16,6 @@ class DAEncoder(nn.Module):
         embedding = torch.tanh(self.eh(self.xe(DA))) # (batch_size, 1) -> (batch_size, 1, hidden_size)
         return embedding
 
-    def initHidden(self, batch_size):
-        return torch.zeros(batch_size, self.hidden_size).cuda()
-
 
 class DAContextEncoder(nn.Module):
     def __init__(self, da_hidden):
@@ -34,6 +31,17 @@ class DAContextEncoder(nn.Module):
     def initHidden(self, batch_size):
         # h_0 = (num_layers * num_directions, batch_size, hidden_size)
         return torch.zeros(1, batch_size, self.hidden_size).cuda()
+
+
+class DADecoder(nn.Module):
+    def __init__(self, da_input_size, da_embed_size, da_hidden):
+        super(DADecoder, self).__init__()
+        self.he = nn.Linear(da_hidden, da_embed_size)
+        self.ey = nn.Linear(da_embed_size, da_input_size)
+
+    def forward(self, hidden):
+        pred = self.ey(F.tanh(self.he(hidden)))
+        return pred
 
 
 class UtteranceEncoder(nn.Module):

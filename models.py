@@ -9,12 +9,12 @@ class RL(nn.Module):
         super(RL, self).__init__()
         self.utt_vocab = utt_vocab
         self.da_vocab = da_vocab
-        self.utt_encoder = UtteranceEncoder(utt_input_size=len(utt_vocab.word2id), embed_size=config['UTT_EMBED'],
-                                            utterance_hidden=config['UTT_HIDDEN'], padding_idx=utt_vocab.word2id['<PAD>'],
+        self.utt_encoder = UtteranceEncoder(utt_input_size=len(utt_vocab.word2id), embed_size=config['NRG']['UTT_EMBED'],
+                                            utterance_hidden=config['NRG']['UTT_HIDDEN'], padding_idx=utt_vocab.word2id['<PAD>'],
                                             fine_tuning=fine_tuning).cuda()
-        self.utt_decoder = UtteranceDecoder(utterance_hidden_size=config['DEC_HIDDEN'], utt_embed_size=config['UTT_EMBED'],
+        self.utt_decoder = UtteranceDecoder(utterance_hidden_size=config['NRG']['DEC_HIDDEN'], utt_embed_size=config['NRG']['UTT_EMBED'],
                                             utt_vocab_size=len(utt_vocab.word2id)).cuda()
-        self.utt_context = UtteranceContextEncoder(utterance_hidden_size=config['UTT_CONTEXT']).cuda()
+        self.utt_context = UtteranceContextEncoder(utterance_hidden_size=config['NRG']['UTT_CONTEXT']).cuda()
         self.config = config
         self.reward_fn = reward_fn
         self.criterion = criterion
@@ -36,8 +36,8 @@ class RL(nn.Module):
         for j in range(len(Y_utt[0]) - 1):
             prev_words = Y_utt[:, j].unsqueeze(1)
             logits, decoder_hidden, _ = self.utt_decoder(prev_words, utt_dec_hidden)
-            filtered_logits = self.top_k_top_p_filtering(_logits=logits, top_k=self.config['top_k'],
-                                                         top_p=self.config['top_p'])
+            filtered_logits = self.top_k_top_p_filtering(_logits=logits, top_k=self.config['NRG']['top_k'],
+                                                         top_p=self.config['NRG']['top_p'])
             probs = F.softmax(filtered_logits, dim=-1)
             _, base_topi = logits.topk(1)
             next_token = torch.multinomial(probs, 1).squeeze(-1)
@@ -61,7 +61,7 @@ class RL(nn.Module):
             print('sample: {}, base: {}'.format(reward, b))
             # Optimized with REINFORCE
             RL_loss = CE_loss * (reward - b)
-            loss = CE_loss * self.config['lambda'] + RL_loss * (1 - self.config['lambda'])
+            loss = CE_loss * self.config['NRG']['lambda'] + RL_loss * (1 - self.config['NRG']['lambda'])
             loss = loss.mean()
             reward = reward.mean().item()
         else:
@@ -153,7 +153,7 @@ class RL(nn.Module):
             logits[indices_to_remove] = filter_value
         return logits
 
-    def _beam_decode(self, decoder, decoder_hiddens, config, encoder_outputs=None):
+    def _beam_decode(self, decoder, decoder_hiddens, config):
         BOS_token = self.utt_vocab.word2id['<BOS>']
         EOS_token = self.utt_vocab.word2id['<EOS>']
         decoded_batch = []
@@ -213,13 +213,16 @@ class RL(nn.Module):
         return decoded_batch, decoder_hidden
 
 class seq2seq(nn.Module):
-    def __init__(self, encoder, decoder, criterion, utt_vocab, da_vocab, reward_fn, config):
+    def __init__(self, utt_vocab, da_vocab, reward_fn, config):
         super(seq2seq, self).__init__()
-        self.criterion = criterion
+        self.criterion = nn.CrossEntropyLoss(ignore_index=utt_vocab.word2id['<PAD>'], reduce=False)
         self.utt_vocab = utt_vocab
         self.da_vocab = da_vocab
-        self.encoder = encoder
-        self.decoder = decoder
+        self.encoder = UtteranceEncoder(utt_input_size=len(utt_vocab.word2id), embed_size=config['NRG']['UTT_EMBED'],
+                               utterance_hidden=config['NRG']['UTT_HIDDEN'], padding_idx=utt_vocab.word2id['<PAD>'],
+                               fine_tuning=False).cuda()
+        self.decoder = UtteranceDecoder(utterance_hidden_size=config['NRG']['DEC_HIDDEN'], utt_embed_size=config['NRG']['UTT_EMBED'],
+                                        utt_vocab_size=len(utt_vocab.word2id)).cuda()
         self.config = config
         self.reward_fn = reward_fn
 

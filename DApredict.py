@@ -12,15 +12,15 @@ import numpy as np
 class DApredictModel(nn.Module):
     def __init__(self, utt_vocab, da_vocab, config):
         super(DApredictModel, self).__init__()
-        if config['use_da']:
-            self.da_encoder = DAEncoder(da_input_size=len(da_vocab.word2id), da_embed_size=config['DA_EMBED'],
-                                        da_hidden=config['DA_HIDDEN']).cuda()
-            self.da_context = DAContextEncoder(da_hidden=config['DA_HIDDEN']).cuda()
-        self.da_decoder = DADecoder(da_input_size=len(da_vocab.word2id), da_embed_size=config['DA_EMBED'],
-                                    da_hidden=config['DEC_HIDDEN']).cuda()
-        self.utt_encoder = UtteranceEncoder(utt_input_size=len(utt_vocab.word2id), embed_size=config['UTT_EMBED'],
-                                            utterance_hidden=config['UTT_HIDDEN'], padding_idx=utt_vocab.word2id['<PAD>']).cuda()
-        self.utt_context = UtteranceContextEncoder(utterance_hidden_size=config['UTT_CONTEXT']).cuda()
+        if config['DApred']['use_da']:
+            self.da_encoder = DAEncoder(da_input_size=len(da_vocab.word2id), da_embed_size=config['DApred']['DA_EMBED'],
+                                        da_hidden=config['DApred']['DA_HIDDEN']).cuda()
+            self.da_context = DAContextEncoder(da_hidden=config['DApred']['DA_HIDDEN']).cuda()
+        self.da_decoder = DADecoder(da_input_size=len(da_vocab.word2id), da_embed_size=config['DApred']['DA_EMBED'],
+                                    da_hidden=config['DApred']['DEC_HIDDEN']).cuda()
+        self.utt_encoder = UtteranceEncoder(utt_input_size=len(utt_vocab.word2id), embed_size=config['DApred']['UTT_EMBED'],
+                                            utterance_hidden=config['DApred']['UTT_HIDDEN'], padding_idx=utt_vocab.word2id['<PAD>']).cuda()
+        self.utt_context = UtteranceContextEncoder(utterance_hidden_size=config['DApred']['UTT_CONTEXT']).cuda()
         self.criterion = nn.CrossEntropyLoss(ignore_index=utt_vocab.word2id['<PAD>'])
         self.config = config
 
@@ -47,28 +47,28 @@ class DApredictModel(nn.Module):
         return decoder_output.data.numpy()
 
     def _encode(self, X_da, X_utt, step_size):
-        if self.config['use_da']:
+        if self.config['DApred']['use_da']:
             da_context_hidden = self.da_context.initHidden(step_size)
             for x_da in X_da:
                 da_encoder_hidden = self.da_encoder(x_da) # (batch_size, 1, DA_HIDDEN)
                 da_context_output, da_context_hidden = self.da_context(da_encoder_hidden, da_context_hidden) # (batch_size, 1, DA_HIDDEN)
 
-        if self.config['use_utt'] and not self.config['use_uttcontext']:
+        if self.config['DApred']['use_utt'] and not self.config['DApred']['use_uttcontext']:
             utt_encoder_hidden = self.utt_encoder.initHidden(step_size)
             utt_encoder_output, utt_encoder_hidden = self.utt_encoder(X_utt[-1], utt_encoder_hidden) # (batch_size, 1, UTT_HIDDEN)
-            if self.config['use_da']:
+            if self.config['DApred']['use_da']:
                 dec_hidden = torch.cat((da_context_output, utt_encoder_output), dim=2)
             else:
                 dec_hidden = utt_encoder_output
-        elif self.config['use_uttcontext']:
+        elif self.config['DApred']['use_uttcontext']:
             utt_context_hidden = self.utt_context.initHidden(step_size)
             for x_utt in X_utt:
                 utt_encoder_hidden = self.utt_encoder.initHidden(step_size)
                 utt_encoder_output, utt_encoder_hidden = self.utt_encoder(x_utt, utt_encoder_hidden)  # (batch_size, 1, UTT_HIDDEN)
                 utt_context_output, utt_context_hidden = self.utt_context(utt_encoder_hidden, utt_context_hidden) # (batch_size, 1, UTT_HIDDEN)
-            if self.config['use_da']:
+            if self.config['DApred']['use_da']:
                 dec_hidden = torch.cat((da_context_output, utt_context_output), dim=2) # (batch_size, 1, DEC_HIDDEN)
-                if not self.config['use_dacontext']:
+                if not self.config['DApred']['use_dacontext']:
                     dec_hidden = torch.cat((da_encoder_hidden, utt_context_output), dim=2)
             else:
                 dec_hidden = utt_context_output

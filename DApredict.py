@@ -17,10 +17,10 @@ class DApredictModel(nn.Module):
                                         da_hidden=config['DApred']['DA_HIDDEN']).cuda()
             self.da_context = DAContextEncoder(da_hidden=config['DApred']['DA_HIDDEN']).cuda()
         self.da_decoder = DADecoder(da_input_size=len(da_vocab.word2id), da_embed_size=config['DApred']['DA_EMBED'],
-                                    da_hidden=config['DApred']['DEC_HIDDEN']).cuda()
+                                    da_hidden=config['DApred']['DA_HIDDEN']+config['DApred']['UTT_CONTEXT']*2).cuda()
         self.utt_encoder = UtteranceEncoder(utt_input_size=len(utt_vocab.word2id), embed_size=config['DApred']['UTT_EMBED'],
                                             utterance_hidden=config['DApred']['UTT_HIDDEN'], padding_idx=utt_vocab.word2id['<PAD>']).cuda()
-        self.utt_context = UtteranceContextEncoder(utterance_hidden_size=config['DApred']['UTT_CONTEXT']).cuda()
+        self.utt_context = UtteranceContextEncoder(utterance_hidden_size=config['DApred']['UTT_CONTEXT'] * 2).cuda()
         self.criterion = nn.CrossEntropyLoss(ignore_index=utt_vocab.word2id['<PAD>'])
         self.config = config
 
@@ -65,7 +65,7 @@ class DApredictModel(nn.Module):
             for x_utt in X_utt:
                 utt_encoder_hidden = self.utt_encoder.initHidden(step_size)
                 utt_encoder_output, utt_encoder_hidden = self.utt_encoder(x_utt, utt_encoder_hidden)  # (batch_size, 1, UTT_HIDDEN)
-                utt_context_output, utt_context_hidden = self.utt_context(utt_encoder_hidden, utt_context_hidden) # (batch_size, 1, UTT_HIDDEN)
+                utt_context_output, utt_context_hidden = self.utt_context(utt_encoder_output.unsqueeze(1), utt_context_hidden) # (batch_size, 1, UTT_HIDDEN)
             if self.config['DApred']['use_da']:
                 dec_hidden = torch.cat((da_context_output, utt_context_output), dim=2) # (batch_size, 1, DEC_HIDDEN)
                 if not self.config['DApred']['use_dacontext']:
@@ -138,8 +138,8 @@ def train(experiment):
                 for ci in range(len(XU_seq)):
                     XU_seq[ci][i] = XU_seq[ci][i] + [utt_vocab.word2id['<PAD>']] * (max_xseq_len - len(XU_seq[ci][i]))
                 XU_tensor.append(torch.tensor([XU[i] for XU in XU_seq]).cuda())
-                XD_tensor.append(torch.tensor([XD[i] for XD in XD_seq]).cuda())
-            YD_tensor = torch.tensor([YD[-1] for YD in YD_seq])
+                XD_tensor.append(torch.tensor([[XD[i]] for XD in XD_seq]).cuda())
+            YD_tensor = torch.tensor([YD[-1] for YD in YD_seq]).cuda()
             loss, preds = predictor.forward(X_da=XD_tensor, Y_da=YD_tensor, X_utt=XU_tensor, step_size=step_size)
             model_opt.step()
             total_loss += loss
@@ -208,7 +208,7 @@ def validation(XD_valid, XU_valid, YD_valid, model, utt_vocab, config):
             for ci in range(len(XU_seq)):
                 XU_seq[ci][i] = XU_seq[ci][i] + [utt_vocab.word2id['<PAD>']] * (max_xseq_len - len(XU_seq[ci][i]))
             XU_tensor.append(torch.tensor([x[i] for x in XU_seq]).cuda())
-            XD_tensor.append(torch.tensor([x[i] for x in XD_seq]).cuda())
+            XD_tensor.append(torch.tensor([[x[i]] for x in XD_seq]).cuda())
         YD_tensor = torch.tensor([y[-1] for y in YD_seq]).cuda()
         loss, preds = model(X_da=XD_tensor, Y_da=YD_tensor, X_utt=XU_tensor, step_size=step_size)
         preds = np.argmax(preds, axis=1)
@@ -246,7 +246,7 @@ def evaluate(experiment):
             for ci in range(len(XU_seq)):
                 XU_seq[ci][i] = XU_seq[ci][i] + [utt_vocab.word2id['<PAD>']] * (max_xseq_len - len(XU_seq[ci][i]))
             XU_tensor.append(torch.tensor([x[i] for x in XU_seq]).cuda())
-            XD_tensor.append(torch.tensor([x[i] for x in XD_seq]).cuda())
+            XD_tensor.append(torch.tensor([[x[i]] for x in XD_seq]).cuda())
         YD_tensor = torch.tensor([y[-1] for y in YD_seq]).cuda()
         preds = predictor.predict(X_da=XD_tensor, X_utt=XU_tensor, step_size=step_size)
         preds = np.argmax(preds, axis=1)

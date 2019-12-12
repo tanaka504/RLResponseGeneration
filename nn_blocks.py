@@ -40,7 +40,7 @@ class DADecoder(nn.Module):
         self.ey = nn.Linear(da_embed_size, da_input_size)
 
     def forward(self, hidden):
-        pred = self.ey(F.tanh(self.he(hidden)))
+        pred = self.ey(torch.tanh(self.he(hidden)))
         return pred
 
 

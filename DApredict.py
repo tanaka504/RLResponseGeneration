@@ -37,7 +37,7 @@ class DApredictModel(nn.Module):
         loss = self.criterion(decoder_output, Y_da)
         if self.training:
             loss.backward()
-        return loss.item(), decoder_output.data.numpy()
+        return loss.item(), decoder_output.data.cpu().numpy()
 
     def predict(self, X_da, X_utt, step_size):
         with torch.no_grad():

@@ -152,13 +152,13 @@ def train(experiment):
         def save_model(filename):
             torch.save(predictor.state_dict(), os.path.join(config['log_dir'], 'da_pred_state{}.model'.format(filename)))
 
-        if _valid_loss is None:
+        if _valid_acc is None:
             save_model('validbest')
-            _valid_loss = valid_loss
+            _valid_acc = valid_acc
         else:
-            if _valid_loss > valid_loss:
+            if _valid_acc > valid_acc:
                 save_model('validbest')
-                _valid_loss = valid_loss
+                _valid_acc = valid_acc
                 print('valid loss update, save model')
 
         if _train_loss is None:

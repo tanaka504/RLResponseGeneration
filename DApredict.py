@@ -15,10 +15,10 @@ class DApredictModel(nn.Module):
                                         da_hidden=config['DApred']['DA_HIDDEN']).cuda()
             self.da_context = DAContextEncoder(da_hidden=config['DApred']['DA_HIDDEN']).cuda()
         self.da_decoder = DADecoder(da_input_size=len(da_vocab.word2id), da_embed_size=config['DApred']['DA_EMBED'],
-                                    da_hidden=config['DApred']['DA_HIDDEN']+config['DApred']['UTT_CONTEXT']*2).cuda()
+                                    da_hidden=config['DApred']['DA_HIDDEN']+config['DApred']['UTT_CONTEXT']).cuda()
         self.utt_encoder = UtteranceEncoder(utt_input_size=len(utt_vocab.word2id), embed_size=config['DApred']['UTT_EMBED'],
-                                            utterance_hidden=config['DApred']['UTT_HIDDEN'], padding_idx=utt_vocab.word2id['<PAD>']).cuda()
-        self.utt_context = UtteranceContextEncoder(utterance_hidden_size=config['DApred']['UTT_CONTEXT'] * 2).cuda()
+                                            utterance_hidden=config['DApred']['UTT_HIDDEN'], padding_idx=utt_vocab.word2id['<PAD>'], bidirectional=False).cuda()
+        self.utt_context = UtteranceContextEncoder(utterance_hidden_size=config['DApred']['UTT_CONTEXT']).cuda()
         self.criterion = nn.CrossEntropyLoss(ignore_index=utt_vocab.word2id['<PAD>'])
         self.config = config
 

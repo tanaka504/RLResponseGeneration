@@ -45,14 +45,15 @@ class DADecoder(nn.Module):
 
 
 class UtteranceEncoder(nn.Module):
-    def __init__(self, utt_input_size, embed_size, utterance_hidden, padding_idx, fine_tuning=False):
+    def __init__(self, utt_input_size, embed_size, utterance_hidden, padding_idx, bidirectional=True, fine_tuning=False):
         super(UtteranceEncoder, self).__init__()
         self.hidden_size = utterance_hidden
         self.padding_idx = padding_idx
+        self.bidirectional = bidirectional
         self.xe = nn.Embedding(utt_input_size, embed_size)
         self.xe.weight.requires_grad = False if fine_tuning else True
         self.eh = nn.Linear(embed_size, utterance_hidden)
-        self.hh = nn.GRU(utterance_hidden, utterance_hidden, num_layers=1, batch_first=True, bidirectional=True)
+        self.hh = nn.GRU(utterance_hidden, utterance_hidden, num_layers=1, batch_first=True, bidirectional=bidirectional)
 
     def forward(self, X, hidden):
         lengths = (X != self.padding_idx).sum(dim=1)
@@ -69,15 +70,21 @@ class UtteranceEncoder(nn.Module):
         # extract last timestep output
         # idx = (lengths - 1).view(-1, 1).expand(output.size(0), output.size(2)).unsqueeze(1)
         # output = output.gather(1, idx)
-        # concat last timestep output of each direction
-        output = torch.cat((output[:, -1, :self.hidden_size], output[:, 0, self.hidden_size:]), dim=-1)
+
         # unsorting
         output = output[unsort_idx]
         hidden = hidden[:, unsort_idx]
+        # concat last timestep output of each direction
+        if self.bidirectional:
+            output = torch.cat((output[:, -1, :self.hidden_size], output[:, 0, self.hidden_size:]), dim=-1)
+        else:
+            output = output[:, -1, :]
+
         return output, hidden
 
     def initHidden(self, batch_size):
-        return torch.zeros(2, batch_size, self.hidden_size).cuda()
+        layers = 2 if self.bidirectional else 1
+        return torch.zeros(layers, batch_size, self.hidden_size).cuda()
 
 
 class UtteranceContextEncoder(nn.Module):

@@ -32,15 +32,16 @@ def parse():
 
 def initialize_env(name):
     corpus_path = {
-        'jaist': {'path': './data/corpus/jaist', 'pattern': r'^data([0-9]*?)\_{}\_([0-9]*?)\.jsonlines$'},
-        'swda': {'path': './data/corpus/json_data', 'pattern': r'^sw_{}_([0-9]*?)\.jsonlines$'},
-        'opensubtitles': {'path': './data/corpus/OpenSubtitles', 'pattern': r'^OpenSubtitles\_{}\_([0-9]*?)\.jsonlines$'},
-        'dailydialog': {'path': './data/corpus/dailydialog', 'pattern': r'^DailyDialog\_{}\_([0-9]*?)\.jsonlines$'}
+        'jaist': {'path': './data/corpus/jaist', 'pattern': r'^data([0-9]*?)\_{}\_([0-9]*?)\.jsonlines$', 'lang': 'ja'},
+        'swda': {'path': './data/corpus/json_data', 'pattern': r'^sw_{}_([0-9]*?)\.jsonlines$', 'lang': 'en'},
+        'opensubtitles': {'path': './data/corpus/OpenSubtitles', 'pattern': r'^OpenSubtitles\_{}\_([0-9]*?)\.jsonlines$', 'lang': 'en'},
+        'dailydialog': {'path': './data/corpus/dailydialog', 'pattern': r'^DailyDialog\_{}\_([0-9]*?)\.jsonlines$', 'lang': 'en'}
     }
     config = pyhocon.ConfigFactory.parse_file('experiments.conf')[name]
     config['log_dir'] = os.path.join(config['log_root'], name)
     config['train_path'] = corpus_path[config['corpus']]['path']
     config['corpus_pattern'] = corpus_path[config['corpus']]['pattern']
+    config['lang'] = corpus_path[config['corpus']]['lang']
     if not os.path.exists(config['log_dir']):
         os.makedirs(config['log_dir'])
     return config

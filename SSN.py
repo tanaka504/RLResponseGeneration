@@ -86,8 +86,9 @@ class OrderPredictor(nn.Module):
 
 def train(experiment):
     config = initialize_env(experiment)
+    valid = 'valid' if config['lang'] == 'en' else 'dev'
     XD_train, YD_train, XU_train, YU_train = create_traindata(config=config, prefix='train')
-    XD_valid, YD_valid, XU_valid, YU_valid = create_traindata(config=config, prefix='valid')
+    XD_valid, YD_valid, XU_valid, YU_valid = create_traindata(config=config, prefix=valid)
     if os.path.exists(os.path.join(config['log_root'], 'da_vocab.dict')):
         da_vocab = da_Vocab(config, create_vocab=False)
         utt_vocab = utt_Vocab(config, create_vocab=False)
@@ -127,10 +128,10 @@ def train(experiment):
     _train_loss = None
     early_stop = 0
     utterance_pairs = [[XU + [utt_vocab.word2id['<SEP>']] + YU for XU, YU in zip(XU_train[conv_idx], YU_train[conv_idx])] for conv_idx in range(len(XU_train))]
-    utterance_pairs = [[batch[pi] for pi in range(0, len(batch), 2)] for batch in utterance_pairs]
+    utterance_pairs = [[batch[pi] for pi in range(0, len(batch), 2)] for batch in utterance_pairs][:50000]
     if config['use_da']:
         da_pairs = [[[XD, YD] for XD, YD in zip(XD_train[conv_idx], YD_train[conv_idx])] for conv_idx in range(len(XD_train))]
-        da_pairs = [[batch[pi] for pi in range(0, len(batch), 2)] for batch in da_pairs]
+        da_pairs = [[batch[pi] for pi in range(0, len(batch), 2)] for batch in da_pairs][:50000]
     else:
         da_pairs = None
 
@@ -268,8 +269,7 @@ def evaluate(experiment):
         da_pair_encoder = None
     order_reasoning_layer = OrderReasoningLayer(encoder_hidden_size=config['SSN_ENC_HIDDEN'], hidden_size=config['SSN_REASONING_HIDDEN'],
                                                 da_hidden_size=config['SSN_DA_HIDDEN']).cuda()
-    classifier = Classifier(hidden_size=config['SSN_REASONING_HIDDEN'], middle_layer_size=config['SSN_MIDDLE_LAYER'], da_hidden_size=config['SSN_DA_HIDDEN'])
-    order_reasoning_layer.load_state_dict(torch.load(os.path.join(config['log_dir'], 'ord_rsn_statevalidbest.model')))
+    classifier = Classifier(hidden_size=config['SSN_REASONING_HIDDEN'] * 6, middle_layer_size=config['SSN_MIDDLE_LAYER'], da_hidden_size=config['SSN_DA_HIDDEN'] * 3)
     predictor = OrderPredictor(utterance_pair_encoder=utterance_pair_encoder, order_reasoning_layer=order_reasoning_layer,
                                da_pair_encoder=da_pair_encoder, classifier=classifier, criterion=nn.BCELoss(), config=config).cuda()
     predictor.load_state_dict(torch.load(os.path.join(config['log_dir'], 'orderpred_statevalidbest.model')))
@@ -343,14 +343,6 @@ def make_triple(utterance_pairs, da_pairs=None, config={'m':5}):
             DAmisordered.append(da_misordered)
             DAtarget.append(da_target)
             Y.append(label)
-    # padding
-    # Xordered = padding(Xordered, utt_vocab.word2id['<PAD>'])
-    # Xmisordered = padding(Xmisordered, utt_vocab.word2id['<PAD>'])
-    # Xtarget = padding(Xtarget, utt_vocab.word2id['<PAD>'])
-    # if not da_pairs is None:
-    #     da_ordered = torch.tensor(DAordered).cuda()
-    #     da_misordered = torch.tensor(DAmisordered).cuda()
-    #     da_target = torch.tensor(DAtarget).cuda()
     return (Xordered, Xmisordered, Xtarget), (DAordered, DAmisordered, DAtarget), Y
 
 def sample_triple(pairs, da_pairs):
@@ -393,7 +385,6 @@ def padding(batch, pad_idx):
 
 
 if __name__ == '__main__':
-    global args
     args = parse()
 
     # train(args.expr)

@@ -11,12 +11,52 @@ from gensim import corpora
 import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 from collections import Counter
-
+import argparse
+import pyhocon
 
 EOS_token = '<EOS>'
 BOS_token = '<BOS>'
 parallel_pattern = re.compile(r'^(.+?)(\t)(.+?)$')
 file_pattern = re.compile(r'^sw\_([0-9]+?)\_([0-9]+?)\.jsonlines$')
+
+damsl_align = {'<Uninterpretable>': ['%', 'x'],
+               '<Statement>': ['sd', 'sv', '^2', 'no', 't3', 't1', 'oo', 'cc', 'co', 'oo_co_cc'],
+               '<Question>': ['q', 'qy', 'qw', 'qy^d', 'bh', 'qo', 'qh', 'br', 'qrr', '^g', 'qw^d'],
+               '<Directive>': ['ad'],
+               '<Propose>': ['p'],
+               '<Greeting>': ['fp', 'fc'],
+               '<Apology>': ['fa', 'nn', 'ar', 'ng', 'nn^e', 'arp', 'nd', 'arp_nd'],
+               '<Agreement>': ['aa', 'aap', 'am', 'aap_am', 'ft'],
+               '<Understanding>': ['b', 'bf', 'ba', 'bk', 'na', 'ny', 'ny^e'],
+               '<Other>': ['o', 'fo', 'bc', 'by', 'fw', 'h', '^q', 'b^m', '^h', 'bd', 'fo_o_fw_"_by_bc'],
+               '<turn>': ['<turn>']}
+
+def parse():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--expr', '-e', default='seq2seq', help='input experiment config')
+    parser.add_argument('--gpu', '-g', type=int, default=0, help='input gpu num')
+    parser.add_argument('--epoch', default='trainbest')
+    args = parser.parse_args()
+    if torch.cuda.is_available():
+        torch.cuda.set_device(args.gpu)
+    return args
+
+
+def initialize_env(name):
+    corpus_path = {
+        'jaist': {'path': './data/corpus/jaist', 'pattern': r'^data([0-9]*?)\_{}\_([0-9]*?)\.jsonlines$', 'lang': 'ja'},
+        'swda': {'path': './data/corpus/json_data', 'pattern': r'^sw_{}_([0-9]*?)\.jsonlines$', 'lang': 'en'},
+        'opensubtitles': {'path': './data/corpus/OpenSubtitles', 'pattern': r'^OpenSubtitles\_{}\_([0-9]*?)\.jsonlines$', 'lang': 'en'},
+        'dailydialog': {'path': './data/corpus/dailydialog', 'pattern': r'^DailyDialog\_{}\_([0-9]*?)\.jsonlines$', 'lang': 'en'}
+    }
+    config = pyhocon.ConfigFactory.parse_file('experiments.conf')[name]
+    config['log_dir'] = os.path.join(config['log_root'], name)
+    config['train_path'] = corpus_path[config['corpus']]['path']
+    config['corpus_pattern'] = corpus_path[config['corpus']]['pattern']
+    config['lang'] = corpus_path[config['corpus']]['lang']
+    if not os.path.exists(config['log_dir']):
+        os.makedirs(config['log_dir'])
+    return config
 
 class da_Vocab:
     def __init__(self, config, das=[], create_vocab=True):
@@ -32,18 +72,15 @@ class da_Vocab:
     def construct(self):
         vocab = {'<PAD>': 0, }
         vocab_count = {}
-
         for token in self.das:
             if token in vocab_count:
                 vocab_count[token] += 1
             else:
                 vocab_count[token] = 1
-
         for k, _ in sorted(vocab_count.items(), key=lambda x: -x[1]):
             vocab[k] = len(vocab)
         self.word2id = vocab
         self.id2word = {v : k for k, v in vocab.items()}
-
         return vocab
 
     def tokenize(self, X_tensor):
@@ -151,11 +188,7 @@ def calc_bleu(refs, hyps):
 
 
 def create_traindata(config, prefix='train'):
-    if config['lang'] == 'en':
-        # file_pattern = re.compile(r'^sw_{}_([0-9]*?)\.jsonlines$'.format(prefix))
-        file_pattern = re.compile(r'^OpenSubtitles\_{}\_([0-9]*?)\.jsonlines$'.format(prefix))
-    elif config['lang'] == 'ja':
-        file_pattern = re.compile(r'^data([0-9]*?)\_{}\_([0-9]*?)\.jsonlines$'.format(prefix))
+    file_pattern = re.compile(config['corpus_pattern'].format(prefix))
     files = [f for f in os.listdir(config['train_path']) if file_pattern.match(f)]
     da_posts = []
     da_cmnts = []
@@ -178,7 +211,7 @@ def create_traindata(config, prefix='train'):
                         utt = [BOS_token] + en_preprocess(utt) + [EOS_token]
                     else:
                         utt = [BOS_token] + utt.split(' ') + [EOS_token]
-                    da_seq.append(da)
+                    da_seq.append(easy_damsl(da))
                     utt_seq.append(utt)
                     turn_seq.append(0)
                 turn_seq[-1] = 1
@@ -195,6 +228,10 @@ def create_traindata(config, prefix='train'):
     assert len(utt_posts) == len(utt_cmnts), 'Unexpect length utt_posts and utt_cmnts'
     assert all(len(ele) == config['window_size'] for ele in da_posts), {len(ele) for ele in da_posts}
     return da_posts, da_cmnts, utt_posts, utt_cmnts
+
+def easy_damsl(tag):
+    easy_tag = [k for k, v in damsl_align.items() if tag in v]
+    return easy_tag[0] if not len(easy_tag) < 1 else tag
 
 def en_preprocess(utterance):
     if utterance == '': return ['<Silence>']

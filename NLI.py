@@ -1,31 +1,25 @@
-import torch
 import torch.nn as nn
-from torch import optim
-from train import initialize_env, parse
-import time, random
 from utils import *
 from sklearn.metrics import accuracy_score
 from pyknp import Juman
 from torch.utils.data import DataLoader, SequentialSampler, TensorDataset
-from torch.utils.data.distributed import DistributedSampler
 from transformers import glue_convert_examples_to_features as convert_examples_to_features
-from transformers import glue_output_modes as output_modes
-from transformers import glue_compute_metrics as compute_metrics
-from transformers import glue_processors as processors
-from tqdm import tqdm
-from transformers import BertConfig, BertForSequenceClassification, BertTokenizer
+from transformers import BertForSequenceClassification, BertTokenizer
 from transformers.data.processors.utils import InputExample
+from NLI_processor import processors, output_modes
+import torch.nn.functional as F
 
 
-class NLI:
+class NLI(nn.Module):
     def __init__(self):
+        super(NLI, self).__init__()
         self.model = BertForSequenceClassification.from_pretrained('./data/model_en/bert_fine_tuning').cuda()
         self.tokenizer = BertTokenizer.from_pretrained('./data/model_en/bert_fine_tuning')
 
     def predict(self, x1, x2):
         """
-        param x1: batch of sentence1 (batch_size, seq_len)
-        param x2: batch of sentence2 (batch_size, seq_len)
+        param x1: batch of sentence1 List(batch_size, seq_len)
+        param x2: batch of sentence2 List(batch_size, seq_len)
         """
         output_dir = './data/model_en/bert_fine_tuning'
         # Loop to handle MNLI double evaluation (matched, mis-matched)
@@ -33,7 +27,7 @@ class NLI:
         eval_outputs_dirs = (output_dir,)
 
         for eval_task, eval_output_dir in zip(eval_task_names, eval_outputs_dirs):
-            eval_dataset = self.load_and_cache_examples(x1, x2, eval_task, self.tokenizer, evaluate=True)
+            eval_dataset = self.load_and_cache_examples(x1, x2, eval_task, self.tokenizer)
 
             if not os.path.exists(eval_output_dir):
                 os.makedirs(eval_output_dir)
@@ -46,10 +40,9 @@ class NLI:
             nb_eval_steps = 0
             preds = None
             out_label_ids = None
-            for batch in tqdm(eval_dataloader, desc="Evaluating"):
+            for batch in eval_dataloader:
                 self.model.eval()
                 batch = tuple(t.cuda() for t in batch)
-
                 with torch.no_grad():
                     inputs = {'input_ids': batch[0],
                               'attention_mask': batch[1],
@@ -57,6 +50,7 @@ class NLI:
                     inputs['token_type_ids'] = batch[2]
                     outputs = self.model(**inputs)
                     tmp_eval_loss, logits = outputs[:2]
+                    logits = F.softmax(logits, dim=-1)
 
                     eval_loss += tmp_eval_loss.mean().item()
                 nb_eval_steps += 1
@@ -66,9 +60,9 @@ class NLI:
                 else:
                     preds = np.append(preds, logits.detach().cpu().numpy(), axis=0)
                     out_label_ids = np.append(out_label_ids, inputs['labels'].detach().cpu().numpy(), axis=0)
-        return preds
+        return np.array(preds)
 
-    def load_and_cache_examples(self, x1, x2, task, tokenizer, evaluate=True):
+    def load_and_cache_examples(self, x1, x2, task, tokenizer):
         processor = processors[task]()
         output_mode = output_modes[task]
         # Load data features from cache or dataset file

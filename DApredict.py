@@ -209,9 +209,7 @@ def validation(XD_valid, XU_valid, YD_valid, model, utt_vocab, config):
             XD_tensor.append(torch.tensor([[x[i]] for x in XD_seq]).cuda())
         YD_tensor = torch.tensor([y[-1] for y in YD_seq]).cuda()
         loss, preds = model(X_da=XD_tensor, Y_da=YD_tensor, X_utt=XU_tensor, step_size=step_size)
-        print(preds)
         preds = np.argmax(preds, axis=1)
-        print(preds)
         acc.append(accuracy_score(y_pred=preds, y_true=YD_tensor.data.tolist()))
         total_loss += loss
         k += step_size

@@ -19,6 +19,18 @@ BOS_token = '<BOS>'
 parallel_pattern = re.compile(r'^(.+?)(\t)(.+?)$')
 file_pattern = re.compile(r'^sw\_([0-9]+?)\_([0-9]+?)\.jsonlines$')
 
+damsl_align = {'<Uninterpretable>': ['%', 'x'],
+               '<Statement>': ['sd', 'sv', '^2', 'no', 't3', 't1', 'oo', 'cc', 'co', 'oo_co_cc'],
+               '<Question>': ['q', 'qy', 'qw', 'qy^d', 'bh', 'qo', 'qh', 'br', 'qrr', '^g', 'qw^d'],
+               '<Directive>': ['ad'],
+               '<Propose>': ['p'],
+               '<Greeting>': ['fp', 'fc'],
+               '<Apology>': ['fa', 'nn', 'ar', 'ng', 'nn^e', 'arp', 'nd', 'arp_nd'],
+               '<Agreement>': ['aa', 'aap', 'am', 'aap_am', 'ft'],
+               '<Understanding>': ['b', 'bf', 'ba', 'bk', 'na', 'ny', 'ny^e'],
+               '<Other>': ['o', 'fo', 'bc', 'by', 'fw', 'h', '^q', 'b^m', '^h', 'bd', 'fo_o_fw_"_by_bc'],
+               '<turn>': ['<turn>']}
+
 def parse():
     parser = argparse.ArgumentParser()
     parser.add_argument('--expr', '-e', default='seq2seq', help='input experiment config')
@@ -69,7 +81,6 @@ class da_Vocab:
             vocab[k] = len(vocab)
         self.word2id = vocab
         self.id2word = {v : k for k, v in vocab.items()}
-
         return vocab
 
     def tokenize(self, X_tensor):
@@ -200,7 +211,7 @@ def create_traindata(config, prefix='train'):
                         utt = [BOS_token] + en_preprocess(utt) + [EOS_token]
                     else:
                         utt = [BOS_token] + utt.split(' ') + [EOS_token]
-                    da_seq.append(da)
+                    da_seq.append(easy_damsl(da))
                     utt_seq.append(utt)
                     turn_seq.append(0)
                 turn_seq[-1] = 1
@@ -217,6 +228,10 @@ def create_traindata(config, prefix='train'):
     assert len(utt_posts) == len(utt_cmnts), 'Unexpect length utt_posts and utt_cmnts'
     assert all(len(ele) == config['window_size'] for ele in da_posts), {len(ele) for ele in da_posts}
     return da_posts, da_cmnts, utt_posts, utt_cmnts
+
+def easy_damsl(tag):
+    easy_tag = [k for k, v in damsl_align.items() if tag in v]
+    return easy_tag[0] if not len(easy_tag) < 1 else tag
 
 def en_preprocess(utterance):
     if utterance == '': return ['<Silence>']

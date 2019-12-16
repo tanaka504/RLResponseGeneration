@@ -28,8 +28,9 @@ class DApredictModel(nn.Module):
         X_da:   input sequence of DA, Tensor(window_size, batch_size, 1)
         Y_da:   gold DA, Tensor(batch_size, 1)
         X_utt:  input sentences, Tensor(window_size, batch_size, seq_len, 1)
+        turn: whether the next speaker equal to current speaker, Tensor(window_size, batch_size, 1)
         """
-        dec_hidden = self._encode(X_da=X_da, X_utt=X_utt, step_size=step_size, turn=turn.float().unsqueeze(1))
+        dec_hidden = self._encode(X_da=X_da, X_utt=X_utt, step_size=step_size, turn=turn.float())
         decoder_output = self.da_decoder(dec_hidden) # (batch_size, 1, DA_VOCAB)
         decoder_output = decoder_output.squeeze(1) # (batch_size, DA_VOCAB)
         Y_da = Y_da.squeeze()
@@ -64,7 +65,7 @@ class DApredictModel(nn.Module):
             for i in range(len(X_utt)):
                 utt_encoder_hidden = self.utt_encoder.initHidden(step_size)
                 utt_encoder_output, utt_encoder_hidden = self.utt_encoder(X_utt[i], utt_encoder_hidden)  # (batch_size, 1, UTT_HIDDEN)
-                utt_encoder_output = torch.cat((utt_encoder_output.unsqueeze(1), turn[:, :, i].unsqueeze(-1)), dim=-1)
+                utt_encoder_output = torch.cat((utt_encoder_output.unsqueeze(1), turn[i]), dim=-1)
                 utt_context_output, utt_context_hidden = self.utt_context(utt_encoder_output, utt_context_hidden) # (batch_size, 1, UTT_HIDDEN)
             if self.config['DApred']['use_da']:
                 dec_hidden = torch.cat((da_context_output, utt_context_output), dim=-1) # (batch_size, 1, DEC_HIDDEN)
@@ -133,6 +134,7 @@ def train(experiment):
             max_conv_len = max(len(s) for s in XU_seq)
             XU_tensor = []
             XD_tensor = []
+            turn_tensor = []
             for i in range(0, max_conv_len):
                 max_xseq_len = max(len(XU[i]) + 1 for XU in XU_seq)
                 # utterance padding
@@ -140,12 +142,12 @@ def train(experiment):
                     XU_seq[ci][i] = XU_seq[ci][i] + [utt_vocab.word2id['<PAD>']] * (max_xseq_len - len(XU_seq[ci][i]))
                 XU_tensor.append(torch.tensor([XU[i] for XU in XU_seq]).cuda())
                 XD_tensor.append(torch.tensor([[XD[i]] for XD in XD_seq]).cuda())
+                turn_tensor.append(torch.tensor([[t[i]] for t in turn_seq]).cuda())
             if config['DApred']['predict']:
                 XD_tensor = XD_tensor[:-1]
                 YD_tensor = torch.tensor([YD[-2] for YD in YD_seq]).cuda()
             else:
                 YD_tensor = torch.tensor([YD[-1] for YD in YD_seq]).cuda()
-            turn_tensor = torch.tensor(turn_seq).cuda()
             loss, preds = predictor.forward(X_da=XD_tensor, Y_da=YD_tensor, X_utt=XU_tensor, turn=turn_tensor, step_size=step_size)
             model_opt.step()
             total_loss += loss

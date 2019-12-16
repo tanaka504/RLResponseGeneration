@@ -278,3 +278,8 @@ def MTLoader():
         X.append(x.split(' '))
         Y.append(y.split(' '))
     return X, Y
+
+def text_postprocess(text):
+    text = text.split('<EOS>')[0]
+    text = re.sub(r'<BOS>', '', text)
+    return text

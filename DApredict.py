@@ -76,7 +76,6 @@ class DApredictModel(nn.Module):
         return dec_hidden
 
 def train(experiment):
-    print('loading setting "{}"...'.format(experiment))
     config = initialize_env(experiment)
     XD_train, YD_train, XU_train, YU_train, turn_train = create_traindata(config=config, prefix='train')
     XD_valid, YD_valid, XU_valid, YU_valid, turn_valid = create_traindata(config=config, prefix='valid')

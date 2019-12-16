@@ -17,7 +17,7 @@ class OrderPredictor(nn.Module):
         super(OrderPredictor, self).__init__()
         self.utterance_pair_encoder = UtteranceEncoder(utt_input_size=len(utt_vocab.word2id), embed_size=config['SSN']['SSN_EMBED'],
                                               utterance_hidden=config['SSN']['SSN_ENC_HIDDEN'], padding_idx=utt_vocab.word2id['<PAD>']).cuda()
-        if config['use_da']:
+        if config['SSN']['use_da']:
             self.da_encoder = DAEncoder(da_input_size=len(da_vocab.word2id), da_embed_size=config['SSN']['SSN_DA_EMBED'], da_hidden=config['SSN']['SSN_DA_HIDDEN'])
         else:
             self.da_encoder = None
@@ -71,7 +71,7 @@ class OrderPredictor(nn.Module):
             XTarget = torch.stack(XTarget).squeeze(2)
             # Tensor:(window_size, batch_size, hidden_size)
 
-            if self.config['use_da']:
+            if self.config['SSN']['use_da']:
                 da_t_output = self.da_encoder(DATarget).permute(1,0,2)
             else:
                 da_t_output = None
@@ -135,7 +135,7 @@ def train(experiment):
             model_opt.zero_grad()
 
             Xtarget = padding([XTarget[i] for i in batch_idx], pad_idx=utt_vocab.word2id['<PAD>'])
-            if config['use_da']:
+            if config['SSN']['use_da']:
                 DAtarget = torch.tensor([DATarget[i] for i in batch_idx]).cuda()
             else:
                 DAtarget = None
@@ -204,7 +204,7 @@ def validation(XU_valid, XD_valid, model, utt_vocab, config):
         # print('\rVALIDATION|\t{} / {} steps'.format(k + step_size, len(indexes)), end='')
         batch_idx = indexes[k : k+step_size]
         Xtarget = padding([XTarget[i] for i in batch_idx], pad_idx=utt_vocab.word2id['<PAD>'])
-        if config['use_da']:
+        if config['SSN']['use_da']:
             DAtarget = torch.tensor([DATarget[i] for i in batch_idx]).cuda()
         else:
             DAtarget = None
@@ -238,7 +238,7 @@ def evaluate(experiment):
         step_size = min(config['BATCH_SIZE'], len(indexes) - k)
         batch_idx = indexes[k : k + step_size]
         Xtarget = padding([XTarget[i] for i in batch_idx], pad_idx=utt_vocab.word2id['<PAD>'])
-        if config['use_da']:
+        if config['SSN']['use_da']:
             DAtarget = torch.tensor([DATarget[i] for i in batch_idx]).cuda()
         else:
             DAtarget = None

@@ -56,6 +56,9 @@ def initialize_env(name):
     config['lang'] = corpus_path[config['corpus']]['lang']
     if not os.path.exists(config['log_dir']):
         os.makedirs(config['log_dir'])
+    print('loading setting "{}"'.format(name))
+    print('log_root: {}'.format(config['log_root']))
+    print('corpus: {}'.format(config['corpus']))
     return config
 
 class da_Vocab:

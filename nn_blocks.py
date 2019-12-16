@@ -72,9 +72,9 @@ class UtteranceEncoder(nn.Module):
         hidden = hidden[:, unsort_idx]
         # concat last timestep output of each direction
         if self.bidirectional:
-            output = torch.cat((output[:, -1, :self.hidden_size], output[:, 0, self.hidden_size:]), dim=-1)
+            output = torch.cat((output[:, -1, :self.hidden_size], output[:, 0, self.hidden_size:]), dim=-1).unsqueeze(1)
         else:
-            output = output[:, -1, :]
+            output = output[:, -1, :].unsqueeze(1)
         return output, hidden
 
     def initHidden(self, batch_size):

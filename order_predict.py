@@ -41,7 +41,7 @@ class OrderPredictor(nn.Module):
         utterance_pair_hidden = self.utterance_pair_encoder.initHidden(step_size)
         for idx in range(len(XTarget)):
             t_output, t_hidden = self.utterance_pair_encoder(X=XTarget[idx], hidden=utterance_pair_hidden)
-            XTarget[idx] = t_output
+            XTarget[idx] = t_output.squeeze(1)
         XTarget = torch.stack(XTarget).squeeze(2)
         # Tensor:(window_size, batch_size, hidden_size)
 

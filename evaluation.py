@@ -30,7 +30,6 @@ def evaluate(experiment):
                config=config).cuda()
     model.load_state_dict(torch.load(os.path.join(config['log_dir'], 'statevalidbest.model'), map_location=lambda storage, loc: storage))
 
-
     indexes = [i for i in range(len(XU_test))]
     batch_size = config['BATCH_SIZE']
     results = []

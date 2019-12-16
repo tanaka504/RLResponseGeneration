@@ -30,7 +30,7 @@ class DApredictModel(nn.Module):
         X_utt:  input sentences, Tensor(window_size, batch_size, seq_len, 1)
         turn: whether the next speaker equal to current speaker, Tensor(window_size, batch_size, 1)
         """
-        dec_hidden = self._encode(X_da=X_da, X_utt=X_utt, step_size=step_size, turn=turn.float())
+        dec_hidden = self._encode(X_da=X_da, X_utt=X_utt, step_size=step_size, turn=turn)
         decoder_output = self.da_decoder(dec_hidden) # (batch_size, 1, DA_VOCAB)
         decoder_output = decoder_output.squeeze(1) # (batch_size, DA_VOCAB)
         Y_da = Y_da.squeeze()
@@ -65,7 +65,7 @@ class DApredictModel(nn.Module):
             for i in range(len(X_utt)):
                 utt_encoder_hidden = self.utt_encoder.initHidden(step_size)
                 utt_encoder_output, utt_encoder_hidden = self.utt_encoder(X_utt[i], utt_encoder_hidden)  # (batch_size, 1, UTT_HIDDEN)
-                utt_encoder_output = torch.cat((utt_encoder_output.unsqueeze(1), turn[i]), dim=-1)
+                utt_encoder_output = torch.cat((utt_encoder_output, turn[i].float().unsqueeze(-1)), dim=-1)
                 utt_context_output, utt_context_hidden = self.utt_context(utt_encoder_output, utt_context_hidden) # (batch_size, 1, UTT_HIDDEN)
             if self.config['DApred']['use_da']:
                 dec_hidden = torch.cat((da_context_output, utt_context_output), dim=-1) # (batch_size, 1, DEC_HIDDEN)
@@ -212,14 +212,15 @@ def validation(XD_valid, XU_valid, YD_valid, turn_valid, model, utt_vocab, confi
         max_conv_len = max(len(s) for s in XU_seq)
         XU_tensor = []
         XD_tensor = []
+        turn_tensor = []
         for i in range(0, max_conv_len):
             max_xseq_len = max(len(XU[i]) + 1 for XU in XU_seq)
             for ci in range(len(XU_seq)):
                 XU_seq[ci][i] = XU_seq[ci][i] + [utt_vocab.word2id['<PAD>']] * (max_xseq_len - len(XU_seq[ci][i]))
             XU_tensor.append(torch.tensor([x[i] for x in XU_seq]).cuda())
             XD_tensor.append(torch.tensor([[x[i]] for x in XD_seq]).cuda())
+            turn_tensor.append(torch.tensor([[t[i]] for t in turn_seq]).cuda())
         YD_tensor = torch.tensor([y[-1] for y in YD_seq]).cuda()
-        turn_tensor = torch.tensor(turn_seq).cuda()
         loss, preds = model(X_da=XD_tensor, Y_da=YD_tensor, X_utt=XU_tensor, turn=turn_tensor, step_size=step_size)
         preds = np.argmax(preds, axis=1)
         acc.append(accuracy_score(y_pred=preds, y_true=YD_tensor.data.tolist()))

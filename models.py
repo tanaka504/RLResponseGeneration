@@ -91,7 +91,6 @@ class RL(nn.Module):
         for X in X_utt:
             utt_encoder_hidden = self.utt_encoder.initHidden(step_size)
             utt_encoder_output, utt_encoder_hidden = self.utt_encoder(X, utt_encoder_hidden)  # (batch_size, 1, UTT_HIDDEN)
-            utt_encoder_output = utt_encoder_output.unsqueeze(1)
             # Update Context Encoder
             utt_context_output, utt_context_hidden = self.utt_context(utt_encoder_output, utt_context_hidden) # (batch_size, 1, UTT_CONTEXT)
 

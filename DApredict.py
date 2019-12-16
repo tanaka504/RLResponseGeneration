@@ -63,8 +63,8 @@ class DApredictModel(nn.Module):
             for i in range(len(X_utt)):
                 utt_encoder_hidden = self.utt_encoder.initHidden(step_size)
                 utt_encoder_output, utt_encoder_hidden = self.utt_encoder(X_utt[i], utt_encoder_hidden)  # (batch_size, 1, UTT_HIDDEN)
-                utt_encoder_hidden = torch.cat((utt_encoder_hidden.transpose(0,1), turn[:, :, i].unsqueeze(-1)), dim=-1)
-                utt_context_output, utt_context_hidden = self.utt_context(utt_encoder_hidden, utt_context_hidden) # (batch_size, 1, UTT_HIDDEN)
+                utt_encoder_output = torch.cat((utt_encoder_hidden.transpose(0,1), turn[:, :, i].unsqueeze(-1)), dim=-1)
+                utt_context_output, utt_context_hidden = self.utt_context(utt_encoder_output, utt_context_hidden) # (batch_size, 1, UTT_HIDDEN)
             if self.config['DApred']['use_da']:
                 dec_hidden = torch.cat((da_context_output, utt_context_output), dim=-1) # (batch_size, 1, DEC_HIDDEN)
                 if not self.config['DApred']['use_dacontext']:
@@ -91,7 +91,8 @@ def train(experiment):
                                          conv])
         da_vocab.save()
         utt_vocab.save()
-    print('Finish create vocab dic...')
+    print('Utterance vocab.: {}'.format(len(utt_vocab.word2id)))
+    print('Dialog Act vocab.: {}'.format(len(da_vocab.word2id)))
 
     # Tokenize
     XD_train, YD_train = da_vocab.tokenize(XD_train), da_vocab.tokenize(YD_train)
@@ -138,7 +139,11 @@ def train(experiment):
                     XU_seq[ci][i] = XU_seq[ci][i] + [utt_vocab.word2id['<PAD>']] * (max_xseq_len - len(XU_seq[ci][i]))
                 XU_tensor.append(torch.tensor([XU[i] for XU in XU_seq]).cuda())
                 XD_tensor.append(torch.tensor([[XD[i]] for XD in XD_seq]).cuda())
-            YD_tensor = torch.tensor([YD[-1] for YD in YD_seq]).cuda()
+            if config['DApred']['predict']:
+                XD_tensor = XD_tensor[:-1]
+                YD_tensor = torch.tensor([YD[-2] for YD in YD_seq]).cuda()
+            else:
+                YD_tensor = torch.tensor([YD[-1] for YD in YD_seq]).cuda()
             turn_tensor = torch.tensor(turn_seq).cuda()
             loss, preds = predictor.forward(X_da=XD_tensor, Y_da=YD_tensor, X_utt=XU_tensor, turn=turn_tensor, step_size=step_size)
             model_opt.step()

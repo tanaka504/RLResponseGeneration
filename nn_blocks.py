@@ -67,10 +67,6 @@ class UtteranceEncoder(nn.Module):
         output, hidden = self.hh(packed_tensor, hidden)
         # unpacking
         output, _ = pad_packed_sequence(output, batch_first=True)
-        # extract last timestep output
-        # idx = (lengths - 1).view(-1, 1).expand(output.size(0), output.size(2)).unsqueeze(1)
-        # output = output.gather(1, idx)
-
         # unsorting
         output = output[unsort_idx]
         hidden = hidden[:, unsort_idx]
@@ -79,7 +75,6 @@ class UtteranceEncoder(nn.Module):
             output = torch.cat((output[:, -1, :self.hidden_size], output[:, 0, self.hidden_size:]), dim=-1)
         else:
             output = output[:, -1, :]
-
         return output, hidden
 
     def initHidden(self, batch_size):

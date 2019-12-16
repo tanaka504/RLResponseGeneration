@@ -87,8 +87,8 @@ class OrderPredictor(nn.Module):
 
 def train(experiment):
     config = initialize_env(experiment)
-    XD_train, YD_train, XU_train, YU_train = create_traindata(config=config, prefix='train')
-    XD_valid, YD_valid, XU_valid, YU_valid = create_traindata(config=config, prefix='valid')
+    XD_train, YD_train, XU_train, YU_train, _ = create_traindata(config=config, prefix='train')
+    XD_valid, YD_valid, XU_valid, YU_valid, _ = create_traindata(config=config, prefix='valid')
     if os.path.exists(os.path.join(config['log_root'], 'da_vocab.dict')):
         da_vocab = da_Vocab(config, create_vocab=False)
         utt_vocab = utt_Vocab(config, create_vocab=False)

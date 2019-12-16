@@ -51,8 +51,8 @@ class Reward:
 def train(experiment, fine_tuning=False):
     print('loading setting "{}"...'.format(experiment))
     config = initialize_env(experiment)
-    X_train, Y_train, XU_train, YU_train = create_traindata(config=config, prefix='train')
-    X_valid, Y_valid, XU_valid, YU_valid = create_traindata(config=config, prefix='valid')
+    X_train, Y_train, XU_train, YU_train, turn_train = create_traindata(config=config, prefix='train')
+    X_valid, Y_valid, XU_valid, YU_valid, turn_valid= create_traindata(config=config, prefix='valid')
     print('Finish create train data...')
 
     if os.path.exists(os.path.join(config['log_root'], 'da_vocab.dict')):

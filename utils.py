@@ -211,7 +211,10 @@ def create_traindata(config, prefix='train'):
                         utt = [BOS_token] + en_preprocess(utt) + [EOS_token]
                     else:
                         utt = [BOS_token] + utt.split(' ') + [EOS_token]
-                    da_seq.append(easy_damsl(da))
+                    if config['corpus'] == 'swda':
+                        da_seq.append(easy_damsl(da))
+                    else:
+                        da_seq.append(da)
                     utt_seq.append(utt)
                     turn_seq.append(0)
                 turn_seq[-1] = 1
@@ -227,7 +230,7 @@ def create_traindata(config, prefix='train'):
     assert len(da_posts) == len(da_cmnts), 'Unexpect length da_posts and da_cmnts'
     assert len(utt_posts) == len(utt_cmnts), 'Unexpect length utt_posts and utt_cmnts'
     assert all(len(ele) == config['window_size'] for ele in da_posts), {len(ele) for ele in da_posts}
-    return da_posts, da_cmnts, utt_posts, utt_cmnts
+    return da_posts, da_cmnts, utt_posts, utt_cmnts, turn
 
 def easy_damsl(tag):
     easy_tag = [k for k, v in damsl_align.items() if tag in v]

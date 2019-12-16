@@ -64,7 +64,7 @@ class DApredictModel(nn.Module):
             for i in range(len(X_utt)):
                 utt_encoder_hidden = self.utt_encoder.initHidden(step_size)
                 utt_encoder_output, utt_encoder_hidden = self.utt_encoder(X_utt[i], utt_encoder_hidden)  # (batch_size, 1, UTT_HIDDEN)
-                utt_encoder_output = torch.cat((utt_encoder_hidden.transpose(0,1), turn[:, :, i].unsqueeze(-1)), dim=-1)
+                utt_encoder_output = torch.cat((utt_encoder_output.unsqueeze(1), turn[:, :, i].unsqueeze(-1)), dim=-1)
                 utt_context_output, utt_context_hidden = self.utt_context(utt_encoder_output, utt_context_hidden) # (batch_size, 1, UTT_HIDDEN)
             if self.config['DApred']['use_da']:
                 dec_hidden = torch.cat((da_context_output, utt_context_output), dim=-1) # (batch_size, 1, DEC_HIDDEN)
@@ -223,7 +223,7 @@ def validation(XD_valid, XU_valid, YD_valid, turn_valid, model, utt_vocab, confi
         acc.append(accuracy_score(y_pred=preds, y_true=YD_tensor.data.tolist()))
         total_loss += loss
         k += step_size
-    return total_loss/len(XD_valid), np.mean(acc)
+    return total_loss, np.mean(acc)
 
 def evaluate(experiment):
     print('loading setting "{}"...'.format(experiment))

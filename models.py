@@ -278,7 +278,8 @@ class seq2seq(nn.Module):
             encoder_hidden = self.encoder.initHidden(step_size)
             encoder_output, encoder_hidden = self.encoder(X, encoder_hidden)
             encoder_hidden = torch.cat((encoder_hidden[0, :, :], encoder_hidden[1, :, :]), dim=-1).unsqueeze(0)
-            pred_seq, _ = self._beam_decode(decoder=self.decoder, decoder_hiddens=encoder_hidden, config=self.config)
+            # pred_seq, _ = self._beam_decode(decoder=self.decoder, decoder_hiddens=encoder_hidden, config=self.config)
+            pred_seq, _ = self._sample_decode(decoder_hidden=encoder_hidden)
         return pred_seq
 
     def _greedy_decode(self, prev_words, decoder, decoder_hidden):
@@ -293,11 +294,12 @@ class seq2seq(nn.Module):
                 break
         return pred_seq, decoder_hidden
 
-    def _sample_decode(self, prev_words, decoder, decoder_hidden):
+    def _sample_decode(self, decoder_hidden):
         EOS_token = self.utt_vocab.word2id['<EOS>']
+        prev_words = torch.tensor([[self.utt_vocab.word2id['<BOS>']]]).cuda()
         pred_seq = []
         for _ in range(self.config['max_len']):
-            logits, decoder_hidden, _ = decoder(prev_words, decoder_hidden)
+            logits, decoder_hidden, _ = self.decoder(prev_words, decoder_hidden)
             filtered_logits = self.top_k_top_p_filtering(_logits=logits, top_k=self.config['top_k'], top_p=self.config['top_p'])
             probs = F.softmax(filtered_logits, dim=-1)
             next_token = torch.multinomial(probs, 1)

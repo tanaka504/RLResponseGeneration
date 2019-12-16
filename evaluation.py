@@ -28,6 +28,7 @@ def evaluate(experiment):
                reward_fn=reward_fn,
                criterion=nn.CrossEntropyLoss(ignore_index=utt_vocab.word2id['<PAD>'], reduce=False),
                config=config).cuda()
+    model.load_state_dict(torch.load(os.path.join(config['log_dir'], 'statevalidbest.model'), map_location=lambda storage, loc: storage))
 
 
     indexes = [i for i in range(len(XU_test))]

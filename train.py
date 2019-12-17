@@ -74,9 +74,7 @@ def train(experiment, fine_tuning=False):
 
     lr = config['lr']
     batch_size = config['BATCH_SIZE']
-    plot_losses = []
     print_total_loss = 0
-    plot_total_loss = []
     reward_fn = Reward(utt_vocab=utt_vocab, da_vocab=da_vocab, config=config) if config['RL'] else None
     model = RL(utt_vocab=utt_vocab,
                da_vocab=da_vocab,
@@ -126,7 +124,6 @@ def train(experiment, fine_tuning=False):
 
             loss, _, _ = model.forward(X_utt=XU_tensor, Y_utt=YU_tensor, step_size=step_size)
             print_total_loss += loss
-            plot_total_loss.append(loss)
             model_opt.step()
             k += step_size
 
@@ -163,9 +160,6 @@ def train(experiment, fine_tuning=False):
             print_loss_avg = print_total_loss / config['LOGGING_FREQ']
             print_total_loss = 0
             print('steps %d\tloss %.4f\tvalid loss %.4f\tvalid reward %.4f | exec time %.4f' % (e + 1, print_loss_avg, valid_loss, valid_reward, time.time() - tmp_time))
-            plot_loss_avg = plot_total_loss / config['LOGGING_FREQ']
-            plot_losses.append(plot_loss_avg)
-            plot_total_loss = 0
 
         if (e + 1) % config['SAVE_MODEL'] == 0:
             print('saving model')

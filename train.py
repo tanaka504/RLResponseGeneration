@@ -181,6 +181,7 @@ def validation(XU_valid, YU_valid, model, utt_vocab, config):
     k = 0
     batch_size = config['BATCH_SIZE']
     indexes = [i for i in range(len(XU_valid))]
+    rewards = []
     while k < len(indexes):
         step_size = min(batch_size, len(indexes) - k)
         batch_idx = indexes[k: k + step_size]
@@ -198,6 +199,7 @@ def validation(XU_valid, YU_valid, model, utt_vocab, config):
         YU_tensor= torch.tensor([y[-1] for y in YU_seq]).cuda()
         loss, reward, pred_seq = model.forward(X_utt=XU_tensor, Y_utt=YU_tensor, step_size=step_size)
         total_loss += loss
+        rewards.append(reward)
         if k == 0:
             sample_idx = random.sample([i for i in range(len(XU_seq))], 3)
             for idx in sample_idx:
@@ -210,7 +212,7 @@ def validation(XU_valid, YU_valid, model, utt_vocab, config):
                 print('context:\t{}'.format(context))
                 print('hyp:\t{}'.format(hyp))
         k += step_size
-    return total_loss, reward
+    return total_loss, np.mean(rewards)
 
 if __name__ == '__main__':
     args = parse()

@@ -5,6 +5,7 @@ from utils import *
 import random
 from sklearn.metrics import accuracy_score
 import numpy as np
+from collections import Counter
 
 
 class DApredictModel(nn.Module):

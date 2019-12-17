@@ -40,6 +40,9 @@ RUN tar xJvf jumanpp-1.02.tar.xz
 WORKDIR /usr/src/jumanpp-1.02
 RUN ./configure && make && make install
 
+WORKDIR /home/src/
+RUN wget https://download.pytorch.org/whl/cu100/torch-1.0.0-cp36-cp36m-linux_x86_64.whl
+RUN git https://github.com/NVIDIA/apex.git
 WORKDIR /home/
 RUN git clone https://github.com/tanaka504/RLResponseGeneration.git RL
 CMD ["/bin/bash"]

@@ -188,7 +188,6 @@ def validation(XU_valid, YU_valid, model, utt_vocab, config):
         YU_seq = [YU_valid[seq_idx] for seq_idx in batch_idx]
         max_conv_len = max(len(s) for s in XU_seq)
         XU_tensor = []
-        YU_tensor = []
         for i in range(0, max_conv_len):
             max_xseq_len = max(len(XU[i]) + 1 for XU in XU_seq)
             max_yseq_len = max(len(YU[i]) + 1 for YU in YU_seq)
@@ -196,7 +195,7 @@ def validation(XU_valid, YU_valid, model, utt_vocab, config):
                 XU_seq[ci][i] = XU_seq[ci][i] + [utt_vocab.word2id['<PAD>']] * (max_xseq_len - len(XU_seq[ci][i]))
                 YU_seq[ci][i] = YU_seq[ci][i] + [utt_vocab.word2id['<PAD>']] * (max_yseq_len - len(YU_seq[ci][i]))
             XU_tensor.append(torch.tensor([x[i] for x in XU_seq]).cuda())
-            YU_tensor.append(torch.tensor([y[i] for y in YU_seq]).cuda())
+        YU_tensor= torch.tensor([y[-1] for y in YU_seq]).cuda()
         loss, reward, pred_seq = model.forward(X_utt=XU_tensor, Y_utt=YU_tensor, step_size=step_size)
         total_loss += loss
         if k == 0:

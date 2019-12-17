@@ -6,8 +6,6 @@ from torch import optim
 from models import *
 from nn_blocks import *
 from utils import *
-from train import initialize_env, parse
-import argparse
 from pprint import pprint
 import numpy as np
 import pickle
@@ -29,7 +27,7 @@ def interpreter(experiment):
     utt_context = UtteranceContextEncoder(utterance_hidden_size=config['UTT_CONTEXT']).to(device)
     utt_context.load_state_dict(torch.load(os.path.join(config['log_dir'], 'utt_context_state{}.model'.format(args.epoch))))
 
-    model = HRED(utt_vocab=utt_vocab,
+    model = RL(utt_vocab=utt_vocab,
                 utt_encoder=utt_encoder, utt_context=utt_context, utt_decoder=utt_decoder, config=config).to(device)
 
     utt_context_hidden = utt_context.initHidden(1) if config['use_uttcontext'] else None

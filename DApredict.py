@@ -253,14 +253,15 @@ def evaluate(experiment):
         max_conv_len = max(len(s) for s in XU_seq)
         XU_tensor = []
         XD_tensor = []
+        turn_tensor = []
         for i in range(0, max_conv_len):
             max_xseq_len = max(len(XU[i]) + 1 for XU in XU_seq)
             for ci in range(len(XU_seq)):
                 XU_seq[ci][i] = XU_seq[ci][i] + [utt_vocab.word2id['<PAD>']] * (max_xseq_len - len(XU_seq[ci][i]))
             XU_tensor.append(torch.tensor([x[i] for x in XU_seq]).cuda())
             XD_tensor.append(torch.tensor([[x[i]] for x in XD_seq]).cuda())
+            turn_tensor.append(torch.tensor([[t[i]] for t in turn_seq]).cuda())
         YD_tensor = torch.tensor([y[-1] for y in YD_seq]).cuda()
-        turn_tensor = torch.tensor(turn_seq).cuda()
         preds = predictor.predict(X_da=XD_tensor, X_utt=XU_tensor, turn=turn_tensor, step_size=step_size)
         preds = np.argmax(preds, axis=1)
         acc.append(accuracy_score(y_pred=preds, y_true=YD_tensor.data.tolist()))

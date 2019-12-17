@@ -220,7 +220,11 @@ def validation(XD_valid, XU_valid, YD_valid, turn_valid, model, utt_vocab, confi
             XU_tensor.append(torch.tensor([x[i] for x in XU_seq]).cuda())
             XD_tensor.append(torch.tensor([[x[i]] for x in XD_seq]).cuda())
             turn_tensor.append(torch.tensor([[t[i]] for t in turn_seq]).cuda())
-        YD_tensor = torch.tensor([y[-1] for y in YD_seq]).cuda()
+        if config['DApred']['predict']:
+            XD_tensor = XD_tensor[:-1]
+            YD_tensor = torch.tensor([YD[-2] for YD in YD_seq]).cuda()
+        else:
+            YD_tensor = torch.tensor([YD[-1] for YD in YD_seq]).cuda()
         loss, preds = model(X_da=XD_tensor, Y_da=YD_tensor, X_utt=XU_tensor, turn=turn_tensor, step_size=step_size)
         preds = np.argmax(preds, axis=1)
         acc.append(accuracy_score(y_pred=preds, y_true=YD_tensor.data.tolist()))
@@ -261,7 +265,11 @@ def evaluate(experiment):
             XU_tensor.append(torch.tensor([x[i] for x in XU_seq]).cuda())
             XD_tensor.append(torch.tensor([[x[i]] for x in XD_seq]).cuda())
             turn_tensor.append(torch.tensor([[t[i]] for t in turn_seq]).cuda())
-        YD_tensor = torch.tensor([y[-1] for y in YD_seq]).cuda()
+        if config['DApred']['predict']:
+            XD_tensor = XD_tensor[:-1]
+            YD_tensor = torch.tensor([YD[-2] for YD in YD_seq]).cuda()
+        else:
+            YD_tensor = torch.tensor([YD[-1] for YD in YD_seq]).cuda()
         preds = predictor.predict(X_da=XD_tensor, X_utt=XU_tensor, turn=turn_tensor, step_size=step_size)
         preds = np.argmax(preds, axis=1)
         acc.append(accuracy_score(y_pred=preds, y_true=YD_tensor.data.tolist()))

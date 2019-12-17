@@ -205,7 +205,7 @@ def validation(XU_valid, YU_valid, model, utt_vocab, config):
                 context = context.split('<EOS>')[0]
                 context = re.sub(r'<BOS>', '', context)
                 hyp = ' '.join([utt_vocab.id2word[wid] for wid in pred_seq[idx]])
-                hyp = hyp.split('<EOS>')
+                hyp = hyp.split('<EOS>')[0]
                 hyp = re.sub(r'<BOS>', '', hyp)
                 print('context:\t{}'.format(context))
                 print('hyp:\t{}'.format(hyp))

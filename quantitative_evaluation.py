@@ -1,17 +1,42 @@
 import pickle, re
-from pprint import  pprint
-from train import create_DAdata, create_Uttdata, initialize_env
+from pprint import pprint
 from evaluation import calc_average
 from utils import *
 import pandas as pd
 from collections import Counter
 from nltk import tokenize
+from nltk.translate.bleu_score import sentence_bleu, corpus_bleu, SmoothingFunction
 from scipy.stats import pearsonr, spearmanr
 from itertools import combinations
 import matplotlib.pyplot as plt
 
 hyp_pattern = re.compile(r'^\<BOS\> (.*?)\<EOS\>$')
 
+class BLEU_score:
+    def __init__(self):
+        pass
+
+    def get_bleu_n(self, refs, hyps, n):
+        BLEU_prec = np.mean([max([self._calc_bleu(ref, hyp, n) for ref in refs]) for hyp in hyps])
+        BLEU_recall = np.mean([max([self._calc_bleu(ref, hyp, n) for hyp in hyps]) for ref in refs])
+        return BLEU_prec, BLEU_recall
+
+    def _calc_bleu(self, ref, hyp, n):
+        try:
+            return sentence_bleu(references=[ref], hypothesis=hyp, smoothing_function=SmoothingFunction().method7, weights=[1/n for _ in range(1, n+1)])
+        except:
+            return 0.0
+
+class Distinct:
+    def __init__(self, sentences):
+        self.sentences = sentences
+
+    def score(self, n):
+        grams = [' '.join(gram) for sentence in self.sentences for gram in self._n_gram(sentence, n)]
+        return len(set(grams))/len(grams)
+
+    def _n_gram(self, seq, n):
+        return [seq[i:i+n] for i in range(len(seq)-n+1)]
 
 def get_dataframe(result):
     df = pd.DataFrame({'DA_pred':result['DA_preds'],
@@ -120,6 +145,23 @@ def quantitative_evaluation():
     print(df_mpmi)
     df_mpmi.to_csv('./data/images/mpmi.csv')
 
+def evaluation():
+    for line in open('./data/result/result_seq2seq.csv').readlines():
+        assert len(line.split('\t')) == 3, line
+    s2s_hyps = [line.split('\t')[2].split(' ') for line in open('./data/result/result_seq2seq.csv', 'r').readlines()]
+    rl_hyps = [line.split('\t')[2].split(' ') for line in open('./data/result/result_RL_s2s.csv', 'r').readlines()]
+    refs =  [[line.split('\t')[1].split(' ')] for line in open('./data/result/result_seq2seq.csv', 'r').readlines()]
+    bleu = BLEU_score()
+    for n in range(1, 5):
+        print('seq2seq BLEU-{}: {}'.format(n, corpus_bleu(refs, s2s_hyps, weights=[1/n for _ in range(1, n+1)], smoothing_function=SmoothingFunction().method2)))
+        print('RL_s2s BLEU-{}: {}'.format(n, corpus_bleu(refs, rl_hyps, weights=[1/n for _ in range(1, n+1)], smoothing_function=SmoothingFunction().method2)))
+    seq2seq_dist = Distinct(sentences=[line[0] for line in s2s_hyps])
+    rl_dist = Distinct(sentences=[line[0] for line in rl_hyps])
+    for n in range(1, 3):
+        print('seq2seq Distinct-{}: {}'.format(n, seq2seq_dist.score(n)))
+        print('RL_s2s Distinct-{}: {}'.format(n, rl_dist.score(n)))
+
+
 if __name__ == '__main__':
-    calc_tfidf()
+    evaluation()
 

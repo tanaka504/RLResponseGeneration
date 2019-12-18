@@ -165,7 +165,7 @@ def train(experiment):
             save_model('validbest')
             _valid_loss = valid_loss
         else:
-            if _valid_loss < valid_loss:
+            if _valid_loss > valid_loss:
                 save_model('validbest')
                 _valid_loss = valid_loss
                 print('valid loss update, save model')

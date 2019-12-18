@@ -211,14 +211,14 @@ def create_traindata(config, prefix='train'):
                 jsondata = json.loads(line)
                 for da, utt in zip(jsondata['DA'], jsondata['sentence']):
                     if config['lang'] == 'en':
-                        utt = [BOS_token] + en_preprocess(utt) + [EOS_token]
+                        _utt = [BOS_token] + en_preprocess(utt) + [EOS_token]
                     else:
-                        utt = [BOS_token] + utt.split(' ') + [EOS_token]
+                        _utt = [BOS_token] + utt.split(' ') + [EOS_token]
                     if config['corpus'] == 'swda':
                         da_seq.append(easy_damsl(da))
                     else:
                         da_seq.append(da)
-                    utt_seq.append(utt)
+                    utt_seq.append(_utt)
                     turn_seq.append(0)
                 turn_seq[-1] = 1
             da_seq = [da for da in da_seq]
@@ -242,6 +242,7 @@ def easy_damsl(tag):
 def en_preprocess(utterance):
     if utterance == '': return ['<Silence>']
     return tokenize.word_tokenize(utterance.lower())
+
 
 def NLILoader(config, prefix='train'):
     if config['lang'] == 'en':

@@ -237,8 +237,8 @@ class seq2seq(nn.Module):
         for j in range(Y.size(1)-1):
             prev_words = Y[:, j].unsqueeze(-1)
             logits, decoder_hidden, decoder_output = self.decoder(prev_words, encoder_hidden)
-            filtered_logits = self.top_k_top_p_filtering(_logits=logits, top_k=self.config['top_k'],
-                                               top_p=self.config['top_p'])
+            filtered_logits = self.top_k_top_p_filtering(_logits=logits, top_k=self.config['NRG']['top_k'],
+                                               top_p=self.config['NRG']['top_p'])
             probs = F.softmax(filtered_logits, dim=-1)
             _, base_topi = logits.topk(1)
             next_token = torch.multinomial(probs, 1).squeeze(-1)

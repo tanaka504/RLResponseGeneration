@@ -19,7 +19,7 @@ class RL(nn.Module):
         self.reward_fn = reward_fn
         self.criterion = criterion
 
-    def forward(self, X_utt, Y_utt, step_size):
+    def forward(self, X_utt, Y_utt, X_da, turn, step_size):
         """
         :param X_utt: context utterance tensor Tensor(window_size, batch_size, seq_len, 1)
         :param Y_utt: reference utterance tensor Tensor(batch_size, seq_len, 1)
@@ -56,9 +56,9 @@ class RL(nn.Module):
             base_seq = [s for s in base_seq.transpose(0,1).data.tolist()]
             ref_seq = [s for s in Y_utt.data.tolist()]
             context = [[s for s in X.data.tolist()] for X in X_utt]
-            reward = self.reward_fn(hyp=pred_seq, ref=ref_seq, context=context, step_size=step_size)
-            b = self.reward_fn(hyp=base_seq, ref=ref_seq, context=context, step_size=step_size)
-            print('sample: {}, base: {}'.format(reward, b))
+            reward = self.reward_fn(hyp=pred_seq, ref=ref_seq, context=context, da_context=X_da, turn=turn, step_size=step_size)
+            b = self.reward_fn(hyp=base_seq, ref=ref_seq, context=context, da_context=X_da, turn=turn, step_size=step_size)
+            # print('sample: {}, base: {}'.format(reward, b))
             # Optimized with REINFORCE
             RL_loss = CE_loss * (reward - b)
             loss = CE_loss * self.config['NRG']['lambda'] + RL_loss * (1 - self.config['NRG']['lambda'])
@@ -91,6 +91,7 @@ class RL(nn.Module):
         for X in X_utt:
             utt_encoder_hidden = self.utt_encoder.initHidden(step_size)
             utt_encoder_output, utt_encoder_hidden = self.utt_encoder(X, utt_encoder_hidden)  # (batch_size, 1, UTT_HIDDEN)
+            utt_encoder_output = torch.cat((utt_encoder_output[:, -1, :self.utt_encoder.hidden_size], utt_encoder_output[:, 0, self.utt_encoder.hidden_size:]), dim=-1).unsqueeze(1)
             # Update Context Encoder
             utt_context_output, utt_context_hidden = self.utt_context(utt_encoder_output, utt_context_hidden) # (batch_size, 1, UTT_CONTEXT)
 
@@ -225,11 +226,12 @@ class seq2seq(nn.Module):
         self.config = config
         self.reward_fn = reward_fn
 
-    def forward(self, X, Y, step_size):
+    def forward(self, X, Y, X_da, turn, step_size):
         CE_loss = 0
         base_loss = 0
         encoder_hidden = self.encoder.initHidden(step_size)
         encoder_output, encoder_hidden = self.encoder(X, encoder_hidden)
+        encoder_output = torch.cat((encoder_output[:, -1, :self.encoder.hidden_size], encoder_output[:, 0, self.encoder.hidden_size:]), dim=-1).unsqueeze(1)
         encoder_hidden = torch.cat((encoder_hidden[0, :, :], encoder_hidden[1, :, :]), dim=-1).unsqueeze(0)
         # encoder_hidden: (1, batch_size, hidden_size)
         pred_seq = []
@@ -256,17 +258,18 @@ class seq2seq(nn.Module):
             base_seq = [s for s in base_seq.transpose(0,1).data.tolist()]
             ref_seq = [s for s in Y.data.tolist()]
             context = [s for s in X.data.tolist()]
-            reward = self.reward_fn.reward(hyp=pred_seq, ref=ref_seq, context=context, step_size=step_size)
-            b = self.reward_fn.reward(hyp=base_seq, ref=ref_seq, context=context, step_size=step_size)
+            reward = self.reward_fn.reward(hyp=pred_seq, ref=ref_seq, context=context, da_context=X_da, turn=turn, step_size=step_size)
+            b = self.reward_fn.reward(hyp=base_seq, ref=ref_seq, context=context, da_context=X_da, turn=turn, step_size=step_size)
+            # print('sample: {}, base: {}'.format(reward, b))
             RL_loss = CE_loss * (reward - b)
-            loss = CE_loss * self.config['lambda'] + RL_loss * (1 - self.config['lambda'])
+            loss = CE_loss * self.config['NRG']['lambda'] + RL_loss * (1 - self.config['NRG']['lambda'])
             loss = loss.mean()
             reward = reward.mean().item()
         else:
             reward = 0
             loss = base_loss.mean()
             pred_seq = torch.stack(base_seq).transpose(0, 1).data.tolist()
-        torch.nn.utils.clip_grad_norm_(self.parameters(), self.config['clip'])
+        # torch.nn.utils.clip_grad_norm_(self.parameters(), self.config['clip'])
 
         if self.training:
             loss.backward()

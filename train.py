@@ -6,6 +6,7 @@ from nn_blocks import *
 import random
 from NLI import NLI
 from order_predict import OrderPredictor
+from DApredict import DApredictModel
 
 
 class Reward:
@@ -14,24 +15,47 @@ class Reward:
         self.ssn_model.load_state_dict(torch.load(os.path.join(config['log_dir'], 'orderpred_statevalidbest.model'),
                                              map_location=lambda storage, loc: storage))
         self.nli_model = NLI()
+        self.da_estimator = DApredictModel(utt_vocab=utt_vocab, da_vocab=da_vocab, config=config).cuda()
+        self.da_predictor = DApredictModel(utt_vocab=utt_vocab, da_vocab=da_vocab, config=config).cuda()
         self.utt_vocab = utt_vocab
 
-    def reward(self, hyp, ref, context, step_size):
+    def reward(self, hyp, ref, context, da_context, turn, step_size):
         """
         hyp:     List(batch_size, seq_len)
         ref:     List(batch_size, seq_len)
-        context: List(batch_size, seq_len)
+        context: List(window_size, batch_size, seq_len)
+        da_context: List(window_size, batch_size, 1)
+        turn:    List(window_size, batch_size, 1)
+        step_size:  Scalar
         """
+        # preprocess
         hyp = self.repadding(hyp)
-        context_decoded = [self.text_postprocess(' '.join([self.utt_vocab.id2word[token] for token in sentence])) for sentence in context]
+        context_decoded = [[self.text_postprocess(' '.join([self.utt_vocab.id2word[token] for token in sentence])) for sentence in conv] for conv in context]
         hyp_decoded = [self.text_postprocess(' '.join([self.utt_vocab.id2word[token] for token in sentence])) for sentence in hyp]
+        X_da = [torch.tensor(xda).cuda() for xda in da_context]
 
-        ssn_pred = self.ssn_model.predict(XTarget=[torch.tensor(context).cuda(), torch.tensor(hyp).cuda()], DATarget=None, step_size=step_size)
+        # DA reward
+        da_predicted = np.argmax(self.da_predictor.predict(X_da=X_da, X_utt=[torch.tensor(sentence) for sentence in context + [hyp]],
+                                                           turn=[torch.tensor(t).cuda() for t in turn] + [torch.tensor([[1] for _ in range(step_size)]).cuda()], step_size=step_size), axis=1)
+        da_candidate = self.da_estimator.predict(X_da=X_da, X_utt=[torch.tensor(sentence) for sentence in context], turn=[torch.tensor(t).cuda() for t in turn], step_size=step_size)
+        # da_candidate: "probabilities of next DA", Numpy(batch_size, len(da_vocab)), scalability=[0,1]
+        da_estimated_topk = da_candidate.argsort()[-3:][::-1]
+        da_rwd = da_candidate[da_predicted] if da_predicted in da_estimated_topk else 0
+
+        # ordered reward
+        ssn_pred = self.ssn_model.predict(XTarget=[torch.tensor(sentence).cuda() for sentence in context + [hyp]], DATarget=[torch.tensor(da).cuda() for da in da_context + [da_predicted]], step_size=step_size)
         # ssn_pred: "probability of misordered", Tensor(batch_size), scalability=[0,1]
-        nli_pred = self.nli_model.predict(x1=context_decoded, x2=hyp_decoded)
+
+        # contradiction reward
+        nli_preds = []
+        for sentence in context_decoded:
+            nli_pred = self.nli_model.predict(x1=sentence, x2=hyp_decoded)
+            nli_pred = torch.tensor(nli_pred[:, 2]).cuda()
+            nli_preds.append(nli_pred)
+
         # nli_pred: "probabilities of [entailment, neutral, contradiction]", List(batch_size, 3), scalability=[0,1]
-        nli_pred = torch.tensor(nli_pred[:, 2]).cuda()
-        reward = (1 - ssn_pred) + (1 - nli_pred)
+
+        reward = (1 - ssn_pred) + (1 - nli_pred) + da_rwd
         return reward
 
     def text_postprocess(self, text):
@@ -48,8 +72,8 @@ class Reward:
                 pass
         return T
 
-def train(experiment, fine_tuning=False):
-    config = initialize_env(experiment)
+def train(args, fine_tuning=False):
+    config = initialize_env(args.expr)
     X_train, Y_train, XU_train, YU_train, turn_train = create_traindata(config=config, prefix='train')
     X_valid, Y_valid, XU_valid, YU_valid, turn_valid= create_traindata(config=config, prefix='valid')
     print('Finish create train data...')
@@ -84,6 +108,9 @@ def train(experiment, fine_tuning=False):
                config=config).cuda()
     if fine_tuning:
         model.load_state_dict(torch.load(os.path.join(config['log_root'], config['pretrain_expr'], 'statevalidbest.model'.format())))
+    if args.checkpoint:
+        model.load_state_dict(torch.load(os.path.join(config['log_dir'], 'state{}.model'.format(args.checkpoint))))
+
     model_opt = optim.Adam(list(filter(lambda x: x.requires_grad, model.parameters())), lr=lr)
     print('Success construct model...')
 
@@ -211,4 +238,4 @@ def validation(XU_valid, YU_valid, model, utt_vocab, config):
 if __name__ == '__main__':
     args = parse()
     fine_tuning = False if 'pretrain' in args.expr else True
-    train(args.expr, fine_tuning=fine_tuning)
+    train(args, fine_tuning=fine_tuning)

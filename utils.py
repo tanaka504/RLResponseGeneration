@@ -36,6 +36,7 @@ def parse():
     parser.add_argument('--expr', '-e', default='seq2seq', help='input experiment config')
     parser.add_argument('--gpu', '-g', type=int, default=0, help='input gpu num')
     parser.add_argument('--epoch', default='trainbest')
+    parser.add_argument('--checkpoint', '-c', default=0)
     args = parser.parse_args()
     if torch.cuda.is_available():
         torch.cuda.set_device(args.gpu)
@@ -284,3 +285,4 @@ def text_postprocess(text):
     text = text.split('<EOS>')[0]
     text = re.sub(r'<BOS>', '', text)
     return text
+

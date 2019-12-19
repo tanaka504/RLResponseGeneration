@@ -70,11 +70,6 @@ class UtteranceEncoder(nn.Module):
         # unsorting
         output = output[unsort_idx]
         hidden = hidden[:, unsort_idx]
-        # concat last timestep output of each direction
-        if self.bidirectional:
-            output = torch.cat((output[:, -1, :self.hidden_size], output[:, 0, self.hidden_size:]), dim=-1).unsqueeze(1)
-        else:
-            output = output[:, -1, :].unsqueeze(1)
         return output, hidden
 
     def initHidden(self, batch_size):
@@ -150,7 +145,7 @@ class OrderReasoningLayer(nn.Module):
         self.hh_b = nn.GRU(self.hidden_size, self.hidden_size, bidirectional=False)
         self.tt = nn.GRU(self.da_hidden_size, self.da_hidden_size)
         self.max_pooling = ChannelPool(kernel_size=3)
-        self.attention = Attention()
+        self.attention = Attention(self.hidden_size)
 
     def forward(self, X, DA, hidden, da_hidden):
         X = self.xh(X)
@@ -167,8 +162,8 @@ class OrderReasoningLayer(nn.Module):
         if self.attn:
             output = output.permute(1, 0, 2)
             output_b = output_b.permute(1, 0, 2)
-            output = self.attention(output, hidden_f)
-            output_b = self.attention(output_b, hidden_b)
+            output = self.attention(output)
+            output_b = self.attention(output_b)
             output = torch.cat((output, output_b), dim=-1)
         else:
             output = torch.cat((self.max_pooling.forward(output), self.max_pooling.forward(output_b)), dim=1)
@@ -205,12 +200,19 @@ class Classifier(nn.Module):
         return pred
 
 class Attention(nn.Module):
-    def forward(self, output, final_state):
-        hidden = final_state.squeeze(0)
-        attn_weights = torch.bmm(output, hidden.unsqueeze(2)).squeeze(2)
-        soft_attn_weights = F.softmax(attn_weights, 1)
-        new_hidden_state = torch.bmm(output.transpose(1, 2), soft_attn_weights.unsqueeze(2)).squeeze(2)
-        return new_hidden_state
+    def __init__(self, hidden_size):
+        super(Attention, self).__init__()
+        self.hidden_size = hidden_size
+        self.layer = nn.Sequential(
+            nn.Linear(self.hidden_size, 24),
+            nn.ReLU(True),
+            nn.Linear(24,1)
+        )
+
+    def forward(self, output):
+        b_size = output.size(0)
+        attn_ene = self.layer(output.view(-1, self.hidden_size))
+        return F.softmax(attn_ene.view(b_size, -1), dim=-1).unsqueeze(-1)
 
 
 class ChannelPool(nn.MaxPool1d):

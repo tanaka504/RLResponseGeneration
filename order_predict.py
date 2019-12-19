@@ -41,7 +41,7 @@ class OrderPredictor(nn.Module):
         utterance_pair_hidden = self.utterance_pair_encoder.initHidden(step_size)
         for idx in range(len(XTarget)):
             t_output, t_hidden = self.utterance_pair_encoder(X=XTarget[idx], hidden=utterance_pair_hidden)
-            XTarget[idx] = t_output.squeeze(1)
+            XTarget[idx] = torch.cat((t_output[:, -1, :self.utterance_pair_encoder.hidden_size], t_output[:, 0, self.utterance_pair_encoder.hidden_size:]), dim=-1)
         XTarget = torch.stack(XTarget).squeeze(2)
         # Tensor:(window_size, batch_size, hidden_size)
 
@@ -82,7 +82,6 @@ class OrderPredictor(nn.Module):
             # output: (batch_size, hidden_size * 2)
             pred = self.classifier(XTarget, da_t_output).squeeze(1)
         return pred
-
 
 
 def train(experiment):

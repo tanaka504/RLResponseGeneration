@@ -107,9 +107,9 @@ def train(args, fine_tuning=False):
                criterion=nn.CrossEntropyLoss(ignore_index=utt_vocab.word2id['<PAD>'], reduce=False),
                config=config).cuda()
     if fine_tuning:
-        model.load_state_dict(torch.load(os.path.join(config['log_root'], config['pretrain_expr'], 'statevalidbest.model'.format())))
+        model.load_state_dict(torch.load(os.path.join(config['log_root'], config['pretrain_expr'], 'statevalidbest.model'.format()), map_location=lambda storage, loc: storage))
     if args.checkpoint:
-        model.load_state_dict(torch.load(os.path.join(config['log_dir'], 'state{}.model'.format(args.checkpoint))))
+        model.load_state_dict(torch.load(os.path.join(config['log_dir'], 'state{}.model'.format(args.checkpoint)), map_location=lambda storage, loc: storage))
 
     model_opt = optim.Adam(list(filter(lambda x: x.requires_grad, model.parameters())), lr=lr)
     print('Success construct model...')
@@ -136,26 +136,31 @@ def train(args, fine_tuning=False):
             print('\rConversation {}/{} training...'.format(k + step_size, len(X_train)), end='')
             XU_seq = [XU_train[seq_idx] for seq_idx in batch_idx]
             YU_seq = [YU_train[seq_idx] for seq_idx in batch_idx]
+            XD_seq = [X_train[seq_idx] for seq_idx in batch_idx]
+            turn_seq = [turn_train[seq_idx] for seq_idx in batch_idx]
             max_conv_len = max(len(s) for s in XU_seq)
             XU_tensor = []
+            XD_tensor = []
+            turn_tensor = []
             for i in range(0, max_conv_len):
                 max_xseq_len = max(len(XU[i]) + 1 for XU in XU_seq)
                 max_yseq_len = max(len(YU[i]) + 1 for YU in YU_seq)
-
                 # utterance padding
                 for ci in range(len(XU_seq)):
                     XU_seq[ci][i] = XU_seq[ci][i] + [utt_vocab.word2id['<PAD>']] * (max_xseq_len - len(XU_seq[ci][i]))
                     YU_seq[ci][i] = YU_seq[ci][i] + [utt_vocab.word2id['<PAD>']] * (max_yseq_len - len(YU_seq[ci][i]))
                 XU_tensor.append(torch.tensor([XU[i] for XU in XU_seq]).cuda())
+                XD_tensor.append(torch.tensor([[x[i]] for x in XD_seq]).cuda())
+                turn_tensor.append(torch.tensor([[t[i]] for t in turn_seq]).cuda())
             YU_tensor= torch.tensor([YU[-1] for YU in YU_seq]).cuda()
 
-            loss, _, _ = model.forward(X_utt=XU_tensor, Y_utt=YU_tensor, step_size=step_size)
+            loss, _, _ = model.forward(X_utt=XU_tensor, Y_utt=YU_tensor, X_da=XD_tensor, turn=turn_tensor, step_size=step_size)
             print_total_loss += loss
             model_opt.step()
             k += step_size
 
         print()
-        valid_loss, valid_reward = validation(XU_valid=XU_valid, YU_valid=YU_valid, model=model, utt_vocab=utt_vocab, config=config)
+        valid_loss, valid_reward = validation(XU_valid=XU_valid, YU_valid=YU_valid, XD_valid=X_valid, turn_valid=turn_valid, model=model, utt_vocab=utt_vocab, config=config)
 
         def save_model(filename):
             torch.save(model.state_dict(), os.path.join(config['log_dir'], 'state{}.model'.format(filename)))
@@ -196,7 +201,7 @@ def train(args, fine_tuning=False):
     print('Finish training | exec time: %.4f [sec]' % (time.time() - start))
 
 
-def validation(XU_valid, YU_valid, model, utt_vocab, config):
+def validation(XU_valid, YU_valid, XD_valid, turn_valid, model, utt_vocab, config):
     model.eval()
     total_loss = 0
     k = 0
@@ -208,8 +213,12 @@ def validation(XU_valid, YU_valid, model, utt_vocab, config):
         batch_idx = indexes[k: k + step_size]
         XU_seq = [XU_valid[seq_idx] for seq_idx in batch_idx]
         YU_seq = [YU_valid[seq_idx] for seq_idx in batch_idx]
+        XD_seq = [XD_valid[seq_idx] for seq_idx in batch_idx]
+        turn_seq = [turn_valid[seq_idx] for seq_idx in batch_idx]
         max_conv_len = max(len(s) for s in XU_seq)
         XU_tensor = []
+        XD_tensor = []
+        turn_tensor = []
         for i in range(0, max_conv_len):
             max_xseq_len = max(len(XU[i]) + 1 for XU in XU_seq)
             max_yseq_len = max(len(YU[i]) + 1 for YU in YU_seq)
@@ -217,8 +226,10 @@ def validation(XU_valid, YU_valid, model, utt_vocab, config):
                 XU_seq[ci][i] = XU_seq[ci][i] + [utt_vocab.word2id['<PAD>']] * (max_xseq_len - len(XU_seq[ci][i]))
                 YU_seq[ci][i] = YU_seq[ci][i] + [utt_vocab.word2id['<PAD>']] * (max_yseq_len - len(YU_seq[ci][i]))
             XU_tensor.append(torch.tensor([x[i] for x in XU_seq]).cuda())
+            XD_tensor.append(torch.tensor([[x[i]] for x in XD_seq]).cuda())
+            turn_tensor.append(torch.tensor([[t[i]] for t in turn_seq]).cuda())
         YU_tensor= torch.tensor([y[-1] for y in YU_seq]).cuda()
-        loss, reward, pred_seq = model.forward(X_utt=XU_tensor, Y_utt=YU_tensor, step_size=step_size)
+        loss, reward, pred_seq = model.forward(X_utt=XU_tensor, Y_utt=YU_tensor, X_da=XD_tensor, turn=turn_tensor, step_size=step_size)
         total_loss += loss
         rewards.append(reward)
         if k == 0:

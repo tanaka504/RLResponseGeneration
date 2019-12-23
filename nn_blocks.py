@@ -146,6 +146,7 @@ class OrderReasoningLayer(nn.Module):
         self.tt = nn.GRU(self.da_hidden_size, self.da_hidden_size)
         self.max_pooling = ChannelPool(kernel_size=3)
         self.attention = Attention(self.hidden_size)
+        self.attention_b = Attention(self.hidden_size)
 
     def forward(self, X, DA, hidden, da_hidden):
         X = self.xh(X)
@@ -162,8 +163,10 @@ class OrderReasoningLayer(nn.Module):
         if self.attn:
             output = output.permute(1, 0, 2)
             output_b = output_b.permute(1, 0, 2)
-            output = self.attention(output)
-            output_b = self.attention(output_b)
+            attns = self.attention(output.contiguous())
+            attns_b = self.attention_b(output_b.contiguous())
+            output = (output * attns).sum(dim=1)
+            output_b = (output_b * attns_b).sum(dim=1)
             output = torch.cat((output, output_b), dim=-1)
         else:
             output = torch.cat((self.max_pooling.forward(output), self.max_pooling.forward(output_b)), dim=1)

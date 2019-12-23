@@ -12,11 +12,13 @@ from DApredict import DApredictModel
 class Reward:
     def __init__(self, utt_vocab, da_vocab, config):
         self.ssn_model = OrderPredictor(utt_vocab=utt_vocab, da_vocab=da_vocab, config=config).cuda()
-        self.ssn_model.load_state_dict(torch.load(os.path.join(config['log_dir'], 'orderpred_statevalidbest.model'),
+        self.ssn_model.load_state_dict(torch.load(os.path.join(config['log_root'], 'order_predict', 'orderpred_statevalidbest.model'),
                                              map_location=lambda storage, loc: storage))
         self.nli_model = NLI()
         self.da_estimator = DApredictModel(utt_vocab=utt_vocab, da_vocab=da_vocab, config=config).cuda()
+        self.da_estimator.load_state_dict(torch.load(os.path.join(config['log_root'], 'DAestimate', 'da_pred_statevalidbest.model'), map_location=lambda storage, loc: storage))
         self.da_predictor = DApredictModel(utt_vocab=utt_vocab, da_vocab=da_vocab, config=config).cuda()
+        self.da_predictor.load_state_dict(torch.load(os.path.join(config['log_root'], 'DApredict_da', 'da_pred_statevalidbest.model'), map_location=lambda storage, loc: storage))
         self.utt_vocab = utt_vocab
 
     def reward(self, hyp, ref, context, da_context, turn, step_size):
@@ -55,7 +57,7 @@ class Reward:
 
         # nli_pred: "probabilities of [entailment, neutral, contradiction]", List(batch_size, 3), scalability=[0,1]
 
-        reward = (1 - ssn_pred) + (1 - nli_pred) + da_rwd
+        reward = (1 - ssn_pred) + (1 - max(nli_pred)) + da_rwd
         return reward
 
     def text_postprocess(self, text):
@@ -78,7 +80,7 @@ def train(args, fine_tuning=False):
     X_valid, Y_valid, XU_valid, YU_valid, turn_valid= create_traindata(config=config, prefix='valid')
     print('Finish create train data...')
 
-    if os.path.exists(os.path.join(config['log_root'], 'da_vocab.dict')):
+    if os.path.exists(os.path.join(config['log_root'], 'utterance_vocab.dict')):
         da_vocab = da_Vocab(config, create_vocab=False)
         utt_vocab = utt_Vocab(config, create_vocab=False)
     else:

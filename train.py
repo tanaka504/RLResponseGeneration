@@ -109,6 +109,7 @@ def train(args, fine_tuning=False):
     if fine_tuning:
         model.load_state_dict(torch.load(os.path.join(config['log_root'], config['pretrain_expr'], 'statevalidbest.model'.format()), map_location=lambda storage, loc: storage))
     if args.checkpoint:
+        print('load checkpoint at epoch {}'.format(args.checkpoint))
         model.load_state_dict(torch.load(os.path.join(config['log_dir'], 'state{}.model'.format(args.checkpoint)), map_location=lambda storage, loc: storage))
 
     model_opt = optim.Adam(list(filter(lambda x: x.requires_grad, model.parameters())), lr=lr)
@@ -119,11 +120,12 @@ def train(args, fine_tuning=False):
     _valid_loss = None
     _train_loss = None
     early_stop = 0
+    indexes = [i for i in range(len(X_train))]
     for e in range(config['EPOCH']):
+        if args.checkpoint:
+            e += int(args.checkpoint)
         tmp_time = time.time()
         print('Epoch {} start'.format(e+1))
-
-        indexes = [i for i in range(len(X_train))]
         random.shuffle(indexes)
         k = 0
         model.train()

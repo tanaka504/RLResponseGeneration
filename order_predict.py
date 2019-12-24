@@ -67,7 +67,8 @@ class OrderPredictor(nn.Module):
             utterance_pair_hidden = self.utterance_pair_encoder.initHidden(step_size)
             for idx in range(len(XTarget)):
                 t_output, t_hidden = self.utterance_pair_encoder(X=XTarget[idx], hidden=utterance_pair_hidden)
-                XTarget[idx] = t_output
+                XTarget[idx] = torch.cat((t_output[:, -1, :self.utterance_pair_encoder.hidden_size],
+                                          t_output[:, 0, self.utterance_pair_encoder.hidden_size:]), dim=-1)
             XTarget = torch.stack(XTarget).squeeze(2)
             # Tensor:(window_size, batch_size, hidden_size)
 
@@ -219,7 +220,7 @@ def validation(XU_valid, XD_valid, model, utt_vocab, config):
 
 def evaluate(experiment):
     config = initialize_env(experiment)
-    XD_test, YD_test, XU_test, YU_test = create_traindata(config=config, prefix='test')
+    XD_test, YD_test, XU_test, YU_test, _ = create_traindata(config=config, prefix='test')
     da_vocab = da_Vocab(config=config, create_vocab=False)
     utt_vocab = utt_Vocab(config=config, create_vocab=False)
     XD_test = da_vocab.tokenize(XD_test)

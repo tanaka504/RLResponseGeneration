@@ -164,7 +164,7 @@ def train(args, fine_tuning=False):
             k += step_size
 
         print()
-        valid_loss, valid_reward = validation(XU_valid=XU_valid, YU_valid=YU_valid, XD_valid=X_valid, turn_valid=turn_valid, model=model, utt_vocab=utt_vocab, config=config)
+        valid_loss, valid_reward, valid_bleu = validation(XU_valid=XU_valid, YU_valid=YU_valid, XD_valid=X_valid, turn_valid=turn_valid, model=model, utt_vocab=utt_vocab, config=config)
 
         def save_model(filename):
             torch.save(model.state_dict(), os.path.join(config['log_dir'], 'state{}.model'.format(filename)))
@@ -195,7 +195,7 @@ def train(args, fine_tuning=False):
         if (e + 1) % config['LOGGING_FREQ'] == 0:
             print_loss_avg = print_total_loss / config['LOGGING_FREQ']
             print_total_loss = 0
-            print('steps %d\tloss %.4f\tvalid loss %.4f\tvalid reward %.4f | exec time %.4f' % (e + 1, print_loss_avg, valid_loss, valid_reward, time.time() - tmp_time))
+            print('steps %d\tloss %.4f\tvalid loss %.4f\tvalid reward %.4f\tvalid bleu %.4f | exec time %.4f' % (e + 1, print_loss_avg, valid_loss, valid_reward, valid_bleu, time.time() - tmp_time))
 
         if (e + 1) % config['SAVE_MODEL'] == 0:
             print('saving model')
@@ -212,6 +212,7 @@ def validation(XU_valid, YU_valid, XD_valid, turn_valid, model, utt_vocab, confi
     batch_size = config['BATCH_SIZE']
     indexes = [i for i in range(len(XU_valid))]
     rewards = []
+    bleus = []
     while k < len(indexes):
         step_size = min(batch_size, len(indexes) - k)
         batch_idx = indexes[k: k + step_size]
@@ -235,6 +236,7 @@ def validation(XU_valid, YU_valid, XD_valid, turn_valid, model, utt_vocab, confi
         YU_tensor= torch.tensor([y[-1] for y in YU_seq]).cuda()
         loss, reward, pred_seq = model.forward(X_utt=XU_tensor, Y_utt=YU_tensor, X_da=XD_tensor, turn=turn_tensor, step_size=step_size)
         total_loss += loss
+        bleus.append(corpus_bleu([[y] for y in YU_tensor.data.tolist()], pred_seq, smoothing_function=SmoothingFunction().method2))
         rewards.append(reward)
         if k == 0:
             sample_idx = random.sample([i for i in range(len(XU_seq))], 3)
@@ -248,7 +250,7 @@ def validation(XU_valid, YU_valid, XD_valid, turn_valid, model, utt_vocab, confi
                 print('context:\t{}'.format(context))
                 print('hyp:\t{}'.format(hyp))
         k += step_size
-    return total_loss, np.mean(rewards)
+    return total_loss, np.mean(rewards), np.mean(bleus)
 
 if __name__ == '__main__':
     args = parse()

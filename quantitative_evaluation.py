@@ -148,10 +148,9 @@ def quantitative_evaluation():
 def evaluation():
     for line in open('./data/result/result_seq2seq.csv').readlines():
         assert len(line.split('\t')) == 3, line
-    s2s_hyps = [line.split('\t')[2].split(' ') for line in open('./data/result/result_seq2seq.csv', 'r').readlines()]
-    rl_hyps = [line.split('\t')[2].split(' ') for line in open('./data/result/result_RL_s2s.csv', 'r').readlines()]
-    refs =  [[line.split('\t')[1].split(' ')] for line in open('./data/result/result_seq2seq.csv', 'r').readlines()]
-    bleu = BLEU_score()
+    s2s_hyps = [line.strip().split('\t')[2].split(' ') for line in open('./data/result/result_seq2seq.csv', 'r').readlines()]
+    rl_hyps = [line.strip().split('\t')[2].split(' ') for line in open('./data/result/result_RL_s2s.csv', 'r').readlines()]
+    refs = [[line.strip().split('\t')[1].split(' ')] for line in open('./data/result/result_seq2seq.csv', 'r').readlines()]
     for n in range(1, 5):
         print('seq2seq BLEU-{}: {}'.format(n, corpus_bleu(refs, s2s_hyps, weights=[1/n for _ in range(1, n+1)], smoothing_function=SmoothingFunction().method2)))
         print('RL_s2s BLEU-{}: {}'.format(n, corpus_bleu(refs, rl_hyps, weights=[1/n for _ in range(1, n+1)], smoothing_function=SmoothingFunction().method2)))

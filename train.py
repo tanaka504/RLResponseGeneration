@@ -171,11 +171,11 @@ def train(args, fine_tuning=False):
 
         if _valid_loss is None:
             save_model('validbest')
-            _valid_loss = valid_loss
+            _valid_loss = valid_bleu
         else:
-            if _valid_loss > valid_loss:
+            if _valid_loss < valid_bleu:
                 save_model('validbest')
-                _valid_loss = valid_loss
+                _valid_loss = valid_bleu
                 print('valid loss update, save model')
 
         if _train_loss is None:

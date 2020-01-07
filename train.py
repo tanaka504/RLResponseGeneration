@@ -41,8 +41,14 @@ class Reward:
                                                            turn=[torch.tensor(t).cuda() for t in turn] + [torch.tensor([[1] for _ in range(step_size)]).cuda()], step_size=step_size), axis=1)
         da_candidate = self.da_estimator.predict(X_da=X_da, X_utt=[torch.tensor(sentence) for sentence in context], turn=[torch.tensor(t).cuda() for t in turn], step_size=step_size)
         # da_candidate: "probabilities of next DA", Numpy(batch_size, len(da_vocab)), scalability=[0,1]
-        da_estimated_topk = da_candidate.argsort()[-3:][::-1]
-        da_rwd = da_candidate[da_predicted] if da_predicted in da_estimated_topk else 0
+        da_estimate_topk = np.argsort(da_candidate, axis=1)[:, -2:][::-1]
+        da_rwd = []
+        for bidx in range(len(da_candidate)):
+            if da_predicted[bidx] in da_estimate_topk[bidx]:
+                da_rwd.append(da_candidate[bidx][da_predicted[bidx]])
+            else:
+                da_rwd.append(0.0)
+        da_rwd = np.array(da_rwd)
 
         # ordered reward
         ssn_pred = self.ssn_model.predict(XTarget=[torch.tensor(sentence).cuda() for sentence in context + [hyp]], DATarget=[torch.tensor(da).cuda() for da in da_context + [da_predicted]], step_size=step_size)
@@ -78,6 +84,9 @@ def train(args, fine_tuning=False):
     config = initialize_env(args.expr)
     X_train, Y_train, XU_train, YU_train, turn_train = create_traindata(config=config, prefix='train')
     X_valid, Y_valid, XU_valid, YU_valid, turn_valid= create_traindata(config=config, prefix='valid')
+    print(len(X_train))
+    print(len(X_valid))
+    exit()
     print('Finish create train data...')
 
     if os.path.exists(os.path.join(config['log_root'], 'utterance_vocab.dict')):

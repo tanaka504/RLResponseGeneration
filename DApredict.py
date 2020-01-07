@@ -46,6 +46,7 @@ class DApredictModel(nn.Module):
             dec_hidden = self._encode(X_da=X_da, X_utt=X_utt, step_size=step_size, turn=turn)
             decoder_output = self.da_decoder(dec_hidden) # (batch_size, 1, DA_VOCAB)
             decoder_output = decoder_output.squeeze(1) # (batch_size, DA_VOCAB)
+            decoder_output = F.softmax(decoder_output, dim=-1)
         return decoder_output.data.cpu().numpy()
 
     def _encode(self, X_da, X_utt, turn, step_size):

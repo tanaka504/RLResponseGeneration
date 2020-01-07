@@ -212,6 +212,7 @@ class RL(nn.Module):
             decoded_batch.append(pred_seq)
         return decoded_batch, decoder_hidden
 
+
 class seq2seq(nn.Module):
     def __init__(self, utt_vocab, da_vocab, reward_fn, config):
         super(seq2seq, self).__init__()

@@ -11,6 +11,8 @@ from DApredict import DApredictModel
 
 class Reward:
     def __init__(self, utt_vocab, da_vocab, config):
+        self.utt_vocab = utt_vocab
+        self.da_vocab = da_vocab
         self.ssn_model = OrderPredictor(utt_vocab=utt_vocab, da_vocab=da_vocab, config=config).cuda()
         self.ssn_model.load_state_dict(torch.load(os.path.join(config['log_root'], 'order_predict', 'orderpred_statevalidbest.model'),
                                              map_location=lambda storage, loc: storage))
@@ -19,7 +21,7 @@ class Reward:
         self.da_estimator.load_state_dict(torch.load(os.path.join(config['log_root'], 'DAestimate', 'da_pred_statevalidbest.model'), map_location=lambda storage, loc: storage))
         self.da_predictor = DApredictModel(utt_vocab=utt_vocab, da_vocab=da_vocab, config=config).cuda()
         self.da_predictor.load_state_dict(torch.load(os.path.join(config['log_root'], 'DApredict_da', 'da_pred_statevalidbest.model'), map_location=lambda storage, loc: storage))
-        self.utt_vocab = utt_vocab
+
 
     def reward(self, hyp, ref, context, da_context, turn, step_size):
         """
@@ -37,9 +39,9 @@ class Reward:
         X_da = [torch.tensor(xda).cuda() for xda in da_context]
 
         # DA reward
-        da_predicted = np.argmax(self.da_predictor.predict(X_da=X_da, X_utt=[torch.tensor(sentence).clone().cuda() for sentence in context + [hyp]],
-                                                           turn=[torch.tensor(t).clone().cuda() for t in turn] + [torch.tensor([[1] for _ in range(step_size)]).cuda()], step_size=step_size), axis=1)
-        da_candidate = self.da_estimator.predict(X_da=X_da, X_utt=[torch.tensor(sentence).clone().cuda() for sentence in context], turn=[torch.tensor(t).cuda() for t in turn], step_size=step_size)
+        da_predicted = np.argmax(self.da_predictor.predict(X_da=X_da, X_utt=[torch.tensor(sentence).clone().cuda() for sentence in context] + [torch.tensor(hyp).clone().cuda()],
+                                                           turn=[torch.tensor(t).clone().cuda() for t in turn] + [torch.tensor([[1] for _ in range(step_size)]).clone().cuda()], step_size=step_size), axis=1)
+        da_candidate = self.da_estimator.predict(X_da=X_da, X_utt=[torch.tensor(sentence).clone().cuda() for sentence in context], turn=[torch.tensor(t).clone().cuda() for t in turn], step_size=step_size)
         # da_candidate: "probabilities of next DA", Numpy(batch_size, len(da_vocab)), scalability=[0,1]
         da_estimate_topk = np.argsort(da_candidate, axis=1)[:, -2:][::-1]
         da_rwd = []
@@ -48,9 +50,9 @@ class Reward:
                 da_rwd.append(da_candidate[bidx][da_predicted[bidx]])
             else:
                 da_rwd.append(0.0)
-        da_rwd = np.array(da_rwd)
+        da_rwd = torch.tensor(da_rwd).cuda()
         # ordered reward
-        ssn_pred = self.ssn_model.predict(XTarget=[torch.tensor(sentence).clone().cuda() for sentence in context + [hyp]], DATarget=[torch.tensor(da).clone().cuda() for da in da_context + [da_predicted]], step_size=step_size)
+        ssn_pred = self.ssn_model.predict(XTarget=[torch.tensor(sentence).clone().cuda() for sentence in context] + [torch.tensor(hyp).clone().cuda()], DATarget=[torch.tensor(da).clone().cuda() for da in da_context + [da_predicted]], step_size=step_size)
         # ssn_pred: "probability of misordered", Tensor(batch_size), scalability=[0,1]
         # contradiction reward
         nli_preds = []
@@ -58,12 +60,11 @@ class Reward:
             nli_pred = self.nli_model.predict(x1=sentence, x2=hyp_decoded)
             nli_pred = nli_pred[:, 2]
             nli_preds.append(nli_pred)
-        nli_preds = np.max(nli_preds, axis=0)
+        nli_preds = torch.tensor(nli_preds).cuda().max(dim=0)[0]
         # nli_pred: "probabilities of [entailment, neutral, contradiction]", List(batch_size, 3), scalability=[0,1]
-
         reward = (1 - ssn_pred) + (1 - nli_preds) + da_rwd
-        self.rewards = {'nli': nli_preds,
-                        'ssn': ssn_pred.data.tolist(),
+        self.rewards = {'nli': (1 - nli_preds).data.tolist(),
+                        'ssn': (1 - ssn_pred).data.tolist(),
                         # 'ssn': 0.0,
                         'da_pred': [self.da_vocab.id2word[t] for t in da_predicted],
                         'da_estimate': [[self.da_vocab.id2word[t] for t in batch] for batch in da_estimate_topk],
@@ -186,6 +187,7 @@ def train(args, fine_tuning=False):
             print_total_loss += loss
             model_opt.step()
             k += step_size
+            break
         print()
         nli_rwd = np.mean(nli_rwds)
         ssn_rwd = np.mean(ssn_rwds)

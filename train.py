@@ -90,9 +90,6 @@ def train(args, fine_tuning=False):
     config = initialize_env(args.expr)
     X_train, Y_train, XU_train, YU_train, turn_train = create_traindata(config=config, prefix='train')
     X_valid, Y_valid, XU_valid, YU_valid, turn_valid= create_traindata(config=config, prefix='valid')
-    print(len(X_train))
-    print(len(X_valid))
-    exit()
     print('Finish create train data...')
 
     if os.path.exists(os.path.join(config['log_root'], 'utterance_vocab.dict')):

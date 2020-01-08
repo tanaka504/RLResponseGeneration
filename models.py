@@ -56,8 +56,8 @@ class RL(nn.Module):
             base_seq = [s for s in base_seq.transpose(0,1).data.tolist()]
             ref_seq = [s for s in Y_utt.data.tolist()]
             context = [[s for s in X.data.tolist()] for X in X_utt]
-            reward = self.reward_fn(hyp=pred_seq, ref=ref_seq, context=context, da_context=X_da, turn=turn, step_size=step_size)
-            b = self.reward_fn(hyp=base_seq, ref=ref_seq, context=context, da_context=X_da, turn=turn, step_size=step_size)
+            reward = self.reward_fn.reward(hyp=pred_seq, ref=ref_seq, context=context, da_context=X_da, turn=turn, step_size=step_size)
+            b = self.reward_fn.reward(hyp=base_seq, ref=ref_seq, context=context, da_context=X_da, turn=turn, step_size=step_size)
             # print('sample: {}, base: {}'.format(reward, b))
             # Optimized with REINFORCE
             RL_loss = CE_loss * (reward - b)

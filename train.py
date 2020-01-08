@@ -187,7 +187,6 @@ def train(args, fine_tuning=False):
             print_total_loss += loss
             model_opt.step()
             k += step_size
-            break
         print()
         nli_rwd = np.mean(nli_rwds)
         ssn_rwd = np.mean(ssn_rwds)

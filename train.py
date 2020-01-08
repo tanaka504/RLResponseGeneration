@@ -37,9 +37,9 @@ class Reward:
         X_da = [torch.tensor(xda).cuda() for xda in da_context]
 
         # DA reward
-        da_predicted = np.argmax(self.da_predictor.predict(X_da=X_da, X_utt=[torch.tensor(sentence) for sentence in context + [hyp]],
-                                                           turn=[torch.tensor(t).cuda() for t in turn] + [torch.tensor([[1] for _ in range(step_size)]).cuda()], step_size=step_size), axis=1)
-        da_candidate = self.da_estimator.predict(X_da=X_da, X_utt=[torch.tensor(sentence) for sentence in context], turn=[torch.tensor(t).cuda() for t in turn], step_size=step_size)
+        da_predicted = np.argmax(self.da_predictor.predict(X_da=X_da, X_utt=[torch.tensor(sentence).clone().cuda() for sentence in context + [hyp]],
+                                                           turn=[torch.tensor(t).clone().cuda() for t in turn] + [torch.tensor([[1] for _ in range(step_size)]).cuda()], step_size=step_size), axis=1)
+        da_candidate = self.da_estimator.predict(X_da=X_da, X_utt=[torch.tensor(sentence).clone().cuda() for sentence in context], turn=[torch.tensor(t).cuda() for t in turn], step_size=step_size)
         # da_candidate: "probabilities of next DA", Numpy(batch_size, len(da_vocab)), scalability=[0,1]
         da_estimate_topk = np.argsort(da_candidate, axis=1)[:, -2:][::-1]
         da_rwd = []
@@ -49,21 +49,19 @@ class Reward:
             else:
                 da_rwd.append(0.0)
         da_rwd = np.array(da_rwd)
-
         # ordered reward
-        ssn_pred = self.ssn_model.predict(XTarget=[torch.tensor(sentence).cuda() for sentence in context + [hyp]], DATarget=[torch.tensor(da).cuda() for da in da_context + [da_predicted]], step_size=step_size)
+        ssn_pred = self.ssn_model.predict(XTarget=[torch.tensor(sentence).clone().cuda() for sentence in context + [hyp]], DATarget=[torch.tensor(da).clone().cuda() for da in da_context + [da_predicted]], step_size=step_size)
         # ssn_pred: "probability of misordered", Tensor(batch_size), scalability=[0,1]
-
         # contradiction reward
         nli_preds = []
         for sentence in context_decoded:
             nli_pred = self.nli_model.predict(x1=sentence, x2=hyp_decoded)
             nli_pred = nli_pred[:, 2]
             nli_preds.append(nli_pred)
-        nli_preds = nli_preds
+        nli_preds = np.max(nli_preds, axis=0)
         # nli_pred: "probabilities of [entailment, neutral, contradiction]", List(batch_size, 3), scalability=[0,1]
 
-        reward = (1 - ssn_pred) + (1 - np.max(nli_preds, axis=0)) + da_rwd
+        reward = (1 - ssn_pred) + (1 - nli_preds) + da_rwd
         self.rewards = {'nli': nli_preds,
                         'ssn': ssn_pred.data.tolist(),
                         # 'ssn': 0.0,

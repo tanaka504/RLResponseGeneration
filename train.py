@@ -58,12 +58,18 @@ class Reward:
         nli_preds = []
         for sentence in context_decoded:
             nli_pred = self.nli_model.predict(x1=sentence, x2=hyp_decoded)
-            nli_pred = torch.tensor(nli_pred[:, 2]).cuda()
+            nli_pred = nli_pred[:, 2]
             nli_preds.append(nli_pred)
-
+        nli_preds = nli_preds
         # nli_pred: "probabilities of [entailment, neutral, contradiction]", List(batch_size, 3), scalability=[0,1]
 
-        reward = (1 - ssn_pred) + (1 - max(nli_pred)) + da_rwd
+        reward = (1 - ssn_pred) + (1 - np.max(nli_preds, axis=0)) + da_rwd
+        self.rewards = {'nli': nli_preds,
+                        'ssn': ssn_pred.data.tolist(),
+                        # 'ssn': 0.0,
+                        'da_pred': [self.da_vocab.id2word[t] for t in da_predicted],
+                        'da_estimate': [[self.da_vocab.id2word[t] for t in batch] for batch in da_estimate_topk],
+                        'da_rwd': da_rwd.data.tolist()}
         return reward
 
     def text_postprocess(self, text):
@@ -142,6 +148,10 @@ def train(args, fine_tuning=False):
         random.shuffle(indexes)
         k = 0
         model.train()
+        rewards = []
+        nli_rwds = []
+        ssn_rwds = []
+        da_rwds = []
         while k < len(indexes):
             # initialize
             step_size = min(batch_size, len(indexes) - k)
@@ -168,15 +178,26 @@ def train(args, fine_tuning=False):
                 XD_tensor.append(torch.tensor([[x[i]] for x in XD_seq]).cuda())
                 turn_tensor.append(torch.tensor([[t[i]] for t in turn_seq]).cuda())
             YU_tensor= torch.tensor([YU[-1] for YU in YU_seq]).cuda()
-
-            loss, _, _ = model.forward(X_utt=XU_tensor, Y_utt=YU_tensor, X_da=XD_tensor, turn=turn_tensor, step_size=step_size)
+            loss, reward, _ = model.forward(X_utt=XU_tensor, Y_utt=YU_tensor, X_da=XD_tensor, turn=turn_tensor, step_size=step_size)
+            rewards.append(reward)
+            if config['RL']:
+                nli_rwds.append(np.mean(reward_fn.rewards['nli']))
+                ssn_rwds.append(np.mean(reward_fn.rewards['ssn']))
+                da_rwds.append(np.mean(reward_fn.rewards['da_rwd']))
+            else:
+                nli_rwds.append(0)
+                ssn_rwds.append(0)
+                da_rwds.append(0)
             print_total_loss += loss
             model_opt.step()
             k += step_size
-
         print()
+        nli_rwd = np.mean(nli_rwds)
+        ssn_rwd = np.mean(ssn_rwds)
+        da_rwd = np.mean(da_rwds)
+        print('nli: {}, ssn: {}, da: {}'.format(nli_rwd, ssn_rwd, da_rwd))
         valid_loss, valid_reward, valid_bleu = validation(XU_valid=XU_valid, YU_valid=YU_valid, XD_valid=X_valid, turn_valid=turn_valid, model=model, utt_vocab=utt_vocab, config=config)
-        log_f.write('{},{},{},{},{}\n'.format(e + 1, print_total_loss, valid_loss, valid_bleu, valid_reward))
+        log_f.write('{},{},{},{},{},{},{},{}\n'.format(e + 1, print_total_loss, valid_loss, valid_bleu, valid_reward, nli_rwd, ssn_rwd, da_rwd))
         def save_model(filename):
             torch.save(model.state_dict(), os.path.join(config['log_dir'], 'state{}.model'.format(filename)))
 
@@ -206,6 +227,7 @@ def train(args, fine_tuning=False):
         if (e + 1) % config['LOGGING_FREQ'] == 0:
             print_loss_avg = print_total_loss / config['LOGGING_FREQ']
             print_total_loss = 0
+            print('train reward: {}, valid reward: {}'.format(np.mean(rewards), valid_reward))
             print('steps %d\tloss %.4f\tvalid loss %.4f\tvalid reward %.4f\tvalid bleu %.4f | exec time %.4f' % (e + 1, print_loss_avg, valid_loss, valid_reward, valid_bleu, time.time() - tmp_time))
 
         if (e + 1) % config['SAVE_MODEL'] == 0:
@@ -213,6 +235,7 @@ def train(args, fine_tuning=False):
             save_model(e+1)
 
     print()
+    log_f.close()
     print('Finish training | exec time: %.4f [sec]' % (time.time() - start))
 
 

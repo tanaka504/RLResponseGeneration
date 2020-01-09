@@ -145,22 +145,20 @@ def quantitative_evaluation():
     print(df_mpmi)
     df_mpmi.to_csv('./data/images/mpmi.csv')
 
-def evaluation():
-    for line in open('./data/result/result_seq2seq.tsv').readlines():
+def evaluation(experiment):
+    for line in open('./data/result/result_{}.tsv'.format(experiment)).readlines():
         assert len(line.split('\t')) == 3, line
-    s2s_hyps = [line.strip().split('\t')[2].split(' ') for line in open('./data/result/result_seq2seq.tsv', 'r').readlines()]
-    rl_hyps = [line.strip().split('\t')[2].split(' ') for line in open('./data/result/result_RL_s2s.tsv', 'r').readlines()]
-    refs = [[line.strip().split('\t')[1].split(' ')] for line in open('./data/result/result_seq2seq.tsv', 'r').readlines()]
+    rl_hyps = [line.strip().split('\t')[1].split(' ') for line in open('./data/result/result_{}.tsv'.format(experiment), 'r').readlines()]
+    refs = [[line.strip().split('\t')[2].split(' ')] for line in open('./data/result/result_{}.tsv'.format(experiment), 'r').readlines()]
     for n in range(1, 5):
-        print('seq2seq BLEU-{}: {}'.format(n, corpus_bleu(refs, s2s_hyps, weights=[1/n for _ in range(1, n+1)], smoothing_function=SmoothingFunction().method2)))
-        print('RL_s2s BLEU-{}: {}'.format(n, corpus_bleu(refs, rl_hyps, weights=[1/n for _ in range(1, n+1)], smoothing_function=SmoothingFunction().method2)))
-    seq2seq_dist = Distinct(sentences=[line for line in s2s_hyps])
+        print('BLEU-{}: {}'.format(n, corpus_bleu(refs, rl_hyps, weights=[1/n for _ in range(1, n+1)], smoothing_function=SmoothingFunction().method2)))
     rl_dist = Distinct(sentences=[line for line in rl_hyps])
     for n in range(1, 3):
-        print('seq2seq Distinct-{}: {}'.format(n, seq2seq_dist.score(n)))
+        # print('seq2seq Distinct-{}: {}'.format(n, seq2seq_dist.score(n)))
         print('RL_s2s Distinct-{}: {}'.format(n, rl_dist.score(n)))
 
 
 if __name__ == '__main__':
-    evaluation()
+    args = parse()
+    evaluation(args.expr)
 

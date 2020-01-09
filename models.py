@@ -77,15 +77,14 @@ class RL(nn.Module):
     def predict(self, X_utt, step_size):
         with torch.no_grad():
             utt_decoder_hidden = self._encoding(X_utt=X_utt, step_size=step_size)
-            prev_words = torch.tensor([[self.utt_vocab.word2id['<BOS>']]]).cuda()
-            if self.config['beam_size']:
-                pred_seq, utt_decoder_hidden = self._beam_decode(decoder=self.utt_decoder,
-                                                                 decoder_hiddens=utt_decoder_hidden,
-                                                                 config=self.config)
-                pred_seq = pred_seq[0]
-            else:
-                pred_seq, utt_decoder_hidden = self._greedy_decode(prev_words, self.utt_decoder, utt_decoder_hidden)
-        return pred_seq
+            # if self.config['beam_size']:
+            #     pred_seq, utt_decoder_hidden = self._beam_decode(decoder=self.utt_decoder,
+            #                                                      decoder_hiddens=utt_decoder_hidden,
+            #                                                      config=self.config)
+
+            # else:
+            pred_seq, utt_decoder_hidden = self._greedy_decode(utt_decoder_hidden, step_size)
+        return torch.stack(pred_seq).transpose(0, 1).data.tolist()
 
     def _encoding(self, X_utt, step_size):
         # Encode Utterance
@@ -99,13 +98,14 @@ class RL(nn.Module):
 
         return utt_context_hidden
 
-    def _greedy_decode(self, prev_words, decoder, decoder_hidden):
+    def _greedy_decode(self, decoder_hidden, step_size):
         PAD_token = self.utt_vocab.word2id['<PAD>']
+        prev_words = torch.tensor([[self.utt_vocab.word2id['<BOS>']] for _ in range(step_size)]).cuda()
         pred_seq = []
         for _ in range(self.config['max_len']):
-            preds, decoder_hidden, _ = decoder(prev_words, decoder_hidden)
+            preds, decoder_hidden, _ = self.utt_decoder(prev_words, decoder_hidden)
             _, topi = preds.topk(1)
-            pred_seq.append(topi)
+            pred_seq.append(topi.squeeze(-1))
             prev_words = topi.clone()
             if all(ele == PAD_token for ele in topi):
                 break

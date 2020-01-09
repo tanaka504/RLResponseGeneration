@@ -14,7 +14,7 @@ sentence_pattern = re.compile(r'<BOS> (.*?) <EOS>')
 def evaluate(experiment):
     print('load vocab')
     config = initialize_env(experiment)
-    X_test, Y_test, XU_test, YU_test = create_traindata(config=config, prefix='test')
+    X_test, Y_test, XU_test, YU_test, _ = create_traindata(config=config, prefix='test')
     da_vocab = da_Vocab(config=config, create_vocab=False)
     utt_vocab = utt_Vocab(config=config, create_vocab=False)
     X_test, Y_test = da_vocab.tokenize(X_test), da_vocab.tokenize(Y_test)
@@ -28,13 +28,14 @@ def evaluate(experiment):
                reward_fn=reward_fn,
                criterion=nn.CrossEntropyLoss(ignore_index=utt_vocab.word2id['<PAD>'], reduce=False),
                config=config).cuda()
-    model.load_state_dict(torch.load(os.path.join(config['log_dir'], 'statevalidbest.model'), map_location=lambda storage, loc: storage))
+    # model.load_state_dict(torch.load(os.path.join(config['log_dir'], 'statevalidbest.model'), map_location=lambda storage, loc: storage))
+    model.load_state_dict(torch.load(os.path.join(config['log_root'], 'HRED_dd_pretrain', 'statevalidbest.model'), map_location=lambda storage, loc: storage))
 
     indexes = [i for i in range(len(XU_test))]
     batch_size = config['BATCH_SIZE']
     results = []
     k = 0
-    out_f = open('./data/result/result_{}.csv'.format(experiment), 'w')
+    out_f = open('./data/result/result_{}_pretrain.tsv'.format(experiment), 'w')
     while k < len(indexes):
         step_size = min(batch_size, len(indexes) - k)
         batch_idx = indexes[k : k + step_size]
@@ -54,20 +55,14 @@ def evaluate(experiment):
                 XU_seq[ci][i] = XU_seq[ci][i] + [utt_vocab.word2id['<PAD>']] * (max_xseq_len - len(XU_seq[ci][i]))
             X_tensor.append(torch.tensor([[x[i] for x in X_seq]]).cuda())
             XU_tensor.append(torch.tensor([XU[i] for XU in XU_seq]).cuda())
-        pred_seq, utt_context_hidden = model.predict(X_utt=XU_tensor, step_size=step_size)
+        XU_tensor = [XU_tensor[-1]]
+        pred_seq = model.predict(X_utt=XU_tensor, step_size=step_size)
         Y_tensor = [y[-1] for y in Y_seq]
         YU_tensor = [y[-1] for y in YU_seq]
-        if not pred_seq[-1] == utt_vocab.word2id['<EOS>']:
-            pred_seq.append(utt_vocab.word2id['<EOS>'])
         for bidx in range(len(XU_seq)):
-            try:
-                hyp = sentence_pattern.search(' '.join([utt_vocab.id2word[wid] for wid in pred_seq[bidx]])).group(1)
-                ref = sentence_pattern.search(' '.join(utt_vocab.id2word[wid] for wid in YU_tensor[bidx])).group(1)
-                contexts = [sentence_pattern.search(' '.join([utt_vocab.id2word[wid] for wid in sent])).group(1) for sent in XU_seq[bidx]]
-            except:
-                print(' '.join([utt_vocab.id2word[wid] for wid in pred_seq[bidx]]))
-                print(' '.join(utt_vocab.id2word[wid] for wid in YU_tensor[bidx]))
-                print([' '.join([utt_vocab.id2word[wid] for wid in sent]) for sent in XU_seq[bidx]])
+            hyp = text_postprocess(' '.join([utt_vocab.id2word[wid] for wid in pred_seq[bidx]]))
+            ref = text_postprocess(' '.join(utt_vocab.id2word[wid] for wid in YU_tensor[bidx]))
+            contexts = [text_postprocess(' '.join([utt_vocab.id2word[wid] for wid in sent])) for sent in XU_seq[bidx]]
             results.append({
                 'hyp': hyp,
                 'ref': ref,
@@ -77,9 +72,7 @@ def evaluate(experiment):
         k += step_size
     print()
     out_f.close()
-    json.dump(results, open('./data/result/result_{}.json'.format(experiment), 'w'), ensure_ascii=False)
-
-    return result
+    json.dump(results, open('./data/result/result_{}_pretrain.json'.format(experiment), 'w'), ensure_ascii=False)
 
 def calc_average(y_true, y_pred):
     p = precision_score(y_true=y_true, y_pred=y_pred, average='macro')
@@ -109,6 +102,4 @@ def save_cmx(y_true, y_pred, expr):
 
 if __name__ == '__main__':
     args = parse()
-    result = evaluate(args.expr)
-    with open('./data/images/results_{}.pkl'.format(args.expr), 'wb') as f:
-        pickle.dump(result, f)
+    evaluate(args.expr)

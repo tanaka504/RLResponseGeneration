@@ -34,8 +34,8 @@ class Reward:
         """
         # preprocess
         hyp = self.repadding(hyp)
-        context_decoded = [[self.text_postprocess(' '.join([self.utt_vocab.id2word[token] for token in sentence])) for sentence in conv] for conv in context]
-        hyp_decoded = [self.text_postprocess(' '.join([self.utt_vocab.id2word[token] for token in sentence])) for sentence in hyp]
+        context_decoded = [[text_postprocess(' '.join([self.utt_vocab.id2word[token] for token in sentence])) for sentence in conv] for conv in context]
+        hyp_decoded = [text_postprocess(' '.join([self.utt_vocab.id2word[token] for token in sentence])) for sentence in hyp]
         X_da = [torch.tensor(xda).cuda() for xda in da_context]
 
         # DA reward
@@ -51,30 +51,33 @@ class Reward:
             else:
                 da_rwd.append(0.0)
         da_rwd = torch.tensor(da_rwd).cuda()
+
         # ordered reward
         ssn_pred = self.ssn_model.predict(XTarget=[torch.tensor(sentence).clone().cuda() for sentence in context] + [torch.tensor(hyp).clone().cuda()], DATarget=[torch.tensor(da).clone().cuda() for da in da_context + [da_predicted]], step_size=step_size)
         # ssn_pred: "probability of misordered", Tensor(batch_size), scalability=[0,1]
+
         # contradiction reward
         nli_preds = []
         for sentence in context_decoded:
             nli_pred = self.nli_model.predict(x1=sentence, x2=hyp_decoded)
             nli_pred = nli_pred[:, 2]
             nli_preds.append(nli_pred)
-        nli_preds = torch.tensor(nli_preds).cuda().max(dim=0)[0]
+        nli_pred = torch.tensor(nli_preds).cuda().max(dim=0)[0]
         # nli_pred: "probabilities of [entailment, neutral, contradiction]", List(batch_size, 3), scalability=[0,1]
-        reward = (1 - ssn_pred) + (1 - nli_preds) + da_rwd
-        self.rewards = {'nli': (1 - nli_preds).data.tolist(),
+
+        # normalize
+        nli_pred = self.z_score_normalize((1 - nli_pred))
+        ssn_pred = self.z_score_normalize((1 - ssn_pred))
+        da_rwd = self.z_score_normalize(da_rwd)
+
+        reward = ssn_pred + nli_pred + da_rwd
+        self.rewards = {'nli': (1 - nli_pred).data.tolist(),
                         'ssn': (1 - ssn_pred).data.tolist(),
                         # 'ssn': 0.0,
                         'da_pred': [self.da_vocab.id2word[t] for t in da_predicted],
                         'da_estimate': [[self.da_vocab.id2word[t] for t in batch] for batch in da_estimate_topk],
                         'da_rwd': da_rwd.data.tolist()}
         return reward
-
-    def text_postprocess(self, text):
-        text = text.split('<EOS>')[0]
-        text = re.sub(r'<BOS>', '', text)
-        return text
 
     def repadding(self, T):
         for i in range(len(T)):
@@ -84,6 +87,11 @@ class Reward:
             except:
                 pass
         return T
+    def z_score_normalize(self, x):
+        xmean = x.mean().item()
+        xstd = torch.std(x).item()
+        zscore = (x - xmean) / xstd
+        return zscore
 
 def train(args, fine_tuning=False):
     config = initialize_env(args.expr)

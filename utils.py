@@ -2,7 +2,7 @@ import os, re, json, math
 import matplotlib.pyplot as plt
 import torch
 from nltk import tokenize
-from nltk.translate.bleu_score import corpus_bleu, SmoothingFunction
+from nltk.translate.bleu_score import sentence_bleu, corpus_bleu, SmoothingFunction
 import pickle
 import pandas as pd
 import seaborn as sns
@@ -180,14 +180,68 @@ class MPMI:
         else:
             return sum(sum(self.matrix[self.tag_idx[tag]][self.vocab.token2id[word]] for word in sentence if word in self.vocab.token2id and not self.matrix[self.tag_idx[tag]][self.vocab.token2id[word]] is None)/ len(sentence) for sentence in sentences) / len(sentences)
 
+class BLEU_score:
+    def __init__(self):
+        pass
+
+    def get_bleu_n(self, refs, hyps, n):
+        BLEU_prec = np.mean([max([self._calc_bleu(ref, hyp, n) for ref in refs]) for hyp in hyps])
+        BLEU_recall = np.mean([max([self._calc_bleu(ref, hyp, n) for hyp in hyps]) for ref in refs])
+        return BLEU_prec, BLEU_recall
+
+    def _calc_bleu(self, ref, hyp, n):
+        try:
+            return sentence_bleu(references=[ref], hypothesis=hyp, smoothing_function=SmoothingFunction().method7, weights=[1/n for _ in range(1, n+1)])
+        except:
+            return 0.0
+
+class Distinct:
+    def __init__(self, sentences):
+        self.sentences = sentences
+
+    def score(self, n):
+        grams = [' '.join(gram) for sentence in self.sentences for gram in self._n_gram(sentence, n)]
+        return len(set(grams))/len(grams)
+
+    def _n_gram(self, seq, n):
+        return [seq[i:i+n] for i in range(len(seq)-n+1)]
+
+class Contradict:
+    def __init__(self, da_vocab, utt_vocab, config):
+        self.config = config
+        self.da_vocab = da_vocab
+        self.utt_vocab = utt_vocab
+        data = [line.strip().split('\t') for line in open('./data/corpus/dnli/dialogue_nli_test.tsv').readlines()]
+        self.X, self.Y = zip(*[(['<BOS>'] + en_preprocess(line[0]) + ['<EOS>'], ['<BOS>'] + en_preprocess(line[1]) + ['<EOS>']) for line in data if line[2] == 'negative'])
+
+    def evaluate(self, model):
+        X = [[self.utt_vocab.word2id[token] if token in self.utt_vocab.word2id.keys() else self.utt_vocab.word2id['<UNK>'] for token in sentence] for sentence in self.X]
+        Y = [[self.utt_vocab.word2id[token] if token in self.utt_vocab.word2id.keys() else self.utt_vocab.word2id['<UNK>'] for token in sentence] for sentence in self.Y]
+        k = 0
+        losses = []
+        batch_size = self.config['BATCH_SIZE']
+        while k < len(X):
+            step_size = min(batch_size, len(X) - k)
+            print('\r{}/{} dnli pairs evaluating'.format(k + step_size, len(X)), end='')
+            X_seq = X[k : k + step_size]
+            Y_seq = Y[k : k + step_size]
+            max_xseq_len = max(len(x) + 1 for x in X_seq)
+            max_yseq_len = max(len(y) + 1 for y in Y_seq)
+            for bidx in range(len(X_seq)):
+                X_seq[bidx] = X_seq[bidx] + [self.utt_vocab.word2id['<PAD>']] * (max_xseq_len - len(X_seq[bidx]))
+                Y_seq[bidx] = Y_seq[bidx] + [self.utt_vocab.word2id['<PAD>']] * (max_yseq_len - len(Y_seq[bidx]))
+            X_tensor = [torch.tensor(X_seq).cuda()]
+            Y_tensor = torch.tensor(Y_seq).cuda()
+            loss = model.perplexity(X_tensor, Y_tensor, step_size)
+            losses.append(loss)
+            k += step_size
+        print()
+        return np.mean(losses)
 
 def calc_bleu(refs, hyps):
         refs = [[list(map(str, ref))] for ref in refs]
         hyps = [list(map(str, hyp)) for hyp in hyps]
-        # try:
         bleu = corpus_bleu(refs, hyps, smoothing_function=SmoothingFunction().method2)
-        # except:
-        #     bleu = 1e-10
         return bleu
 
 
@@ -286,3 +340,22 @@ def text_postprocess(text):
     text = re.sub(r'<BOS>', '', text)
     return text
 
+def z_score_normalize():
+    model_dir = './data/model_dd/RL_s2s_dd'
+
+    def z_score(data):
+        print('mean: ', data.mean())
+        print('std: ', np.std(data))
+
+    nli_rewards = pickle.load(open(os.path.join(model_dir, 'nli_rwd.list'), 'rb'))
+    ssn_rewards = pickle.load(open(os.path.join(model_dir, 'ssn_rwd.list'), 'rb'))
+    da_rewards = pickle.load(open(os.path.join(model_dir, 'da_rwd.list'), 'rb'))
+    nli_rewards = np.array([1-score for ele in nli_rewards for score in ele])
+    ssn_rewards = np.array([1-score for ele in ssn_rewards for score in ele])
+    da_rewards = np.array([score for ele in da_rewards for score in ele])
+    z_score(nli_rewards)
+    z_score(ssn_rewards)
+    z_score(da_rewards)
+
+if __name__ == '__main__':
+    z_score_normalize()

@@ -14,14 +14,14 @@ sentence_pattern = re.compile(r'<BOS> (.*?) <EOS>')
 def evaluate(experiment):
     print('load vocab')
     config = initialize_env(experiment)
-    X_test, Y_test, XU_test, YU_test, _ = create_traindata(config=config, prefix='test')
+    X_test, Y_test, XU_test, YU_test, turn = create_traindata(config=config, prefix='test')
     da_vocab = da_Vocab(config=config, create_vocab=False)
     utt_vocab = utt_Vocab(config=config, create_vocab=False)
     X_test, Y_test = da_vocab.tokenize(X_test), da_vocab.tokenize(Y_test)
     XU_test, YU_test = utt_vocab.tokenize(XU_test), utt_vocab.tokenize(YU_test)
 
     print('load models')
-    reward_fn = Reward(utt_vocab=utt_vocab, da_vocab=da_vocab, config=config) if config['RL'] else None
+    reward_fn = Reward(utt_vocab=utt_vocab, da_vocab=da_vocab, config=config)
     model = RL(utt_vocab=utt_vocab,
                da_vocab=da_vocab,
                fine_tuning=False,
@@ -31,10 +31,15 @@ def evaluate(experiment):
     # model.load_state_dict(torch.load(os.path.join(config['log_dir'], 'statevalidbest.model'), map_location=lambda storage, loc: storage))
     model.load_state_dict(torch.load(os.path.join(config['log_root'], 'HRED_dd_pretrain', 'statevalidbest.model'), map_location=lambda storage, loc: storage))
 
+    contradict = Contradict(da_vocab=da_vocab, utt_vocab=utt_vocab, config=config)
+    c_perplexity = contradict.evaluate(model)
     indexes = [i for i in range(len(XU_test))]
     batch_size = config['BATCH_SIZE']
     results = []
     k = 0
+    nli_rwds = []
+    ssn_rwds = []
+    da_rwds = []
     out_f = open('./data/result/result_{}_pretrain.tsv'.format(experiment), 'w')
     while k < len(indexes):
         step_size = min(batch_size, len(indexes) - k)
@@ -45,18 +50,25 @@ def evaluate(experiment):
         Y_seq = [Y_test[seq_idx] for seq_idx in batch_idx]
         XU_seq = [XU_test[seq_idx] for seq_idx in batch_idx]
         YU_seq = [YU_test[seq_idx] for seq_idx in batch_idx]
+        turn_seq = [turn[seq_idx] for seq_idx in batch_idx]
         assert len(X_seq) == len(Y_seq), 'Unexpect sequence len in test data'
         max_conv_len = max(len(s) for s in XU_seq)
         X_tensor = []
         XU_tensor = []
+        turn_tensor = []
         for i in range(0, max_conv_len):
             max_xseq_len = max(len(XU[i]) + 1 for XU in XU_seq)
             for ci in range(len(XU_seq)):
                 XU_seq[ci][i] = XU_seq[ci][i] + [utt_vocab.word2id['<PAD>']] * (max_xseq_len - len(XU_seq[ci][i]))
-            X_tensor.append(torch.tensor([[x[i] for x in X_seq]]).cuda())
+            X_tensor.append([[x[i]] for x in X_seq])
             XU_tensor.append(torch.tensor([XU[i] for XU in XU_seq]).cuda())
+            turn_tensor.append([[t[i]] for t in turn_seq])
         XU_tensor = [XU_tensor[-1]]
         pred_seq = model.predict(X_utt=XU_tensor, step_size=step_size)
+        reward = reward_fn.reward(hyp=pred_seq, ref=None, context=[[s for s in X.data.tolist()] for X in XU_tensor], da_context=X_tensor, turn=turn_tensor, step_size=step_size)
+        nli_rwds.append(reward_fn.rewards['nli'])
+        ssn_rwds.append(reward_fn.rewards['ssn'])
+        da_rwds.append(reward_fn.rewards['da_rwd'])
         Y_tensor = [y[-1] for y in Y_seq]
         YU_tensor = [y[-1] for y in YU_seq]
         for bidx in range(len(XU_seq)):
@@ -71,6 +83,10 @@ def evaluate(experiment):
             out_f.write('{}\t{}\t{}\n'.format('|'.join(contexts), hyp, ref))
         k += step_size
     print()
+    nli_rwd = np.mean([score for ele in nli_rwds for score in ele])
+    ssn_rwd = np.mean([score for ele in ssn_rwds for score in ele])
+    da_rwd = np.mean([score for ele in da_rwds for score in ele])
+    print('nli: {}, ssn: {}, da: {}, contradict-perplexity: {}'.format(nli_rwd, ssn_rwd, da_rwd, c_perplexity))
     out_f.close()
     json.dump(results, open('./data/result/result_{}_pretrain.json'.format(experiment), 'w'), ensure_ascii=False)
 

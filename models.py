@@ -86,6 +86,16 @@ class RL(nn.Module):
             pred_seq, utt_decoder_hidden = self._greedy_decode(utt_decoder_hidden, step_size)
         return torch.stack(pred_seq).transpose(0, 1).data.tolist()
 
+    def perplexity(self, X, Y, step_size):
+        with torch.no_grad():
+            loss = 0
+            decoder_hidden = self._encoding(X_utt=X, step_size=step_size)
+            for j in range(len(Y[0]) - 1):
+                prev_words = Y[:, j].unsqueeze(1)
+                logits, decoder_hidden, _ = self.utt_decoder(prev_words, decoder_hidden)
+                loss += self.criterion(logits, Y[:, j+1])
+        return loss.mean().item()
+
     def _encoding(self, X_utt, step_size):
         # Encode Utterance
         utt_context_hidden = self.utt_context.initHidden(step_size)
@@ -288,6 +298,20 @@ class seq2seq(nn.Module):
             # pred_seq, _ = self._sample_decode(decoder_hidden=encoder_hidden, step_size=step_size)
             pred_seq, _ = self._greedy_decode(decoder_hidden=encoder_hidden, step_size=step_size)
         return torch.stack(pred_seq).transpose(0, 1).data.tolist()
+
+    def perplexity(self, X, Y, step_size):
+        with torch.no_grad():
+            loss = 0
+            encoder_hidden = self.encoder.initHidden(step_size)
+            _, encoder_hidden = self.encoder(X, encoder_hidden)
+            encoder_hidden = torch.cat((encoder_hidden[0, :, :], encoder_hidden[1, :, :]), dim=-1).unsqueeze(0)
+            decoder_hidden = encoder_hidden
+            prev_words = torch.tensor([[self.utt_vocab.word2id['<BOS>']] for _ in range(step_size)]).cuda()
+            for j in range(Y.size(1)):
+                logits, decoder_hidden, decoder_output = self.decoder(prev_words, decoder_hidden)
+                loss += self.criterion(logits, Y[:, j])
+                prev_words = Y[:, j].unsqueeze(-1)
+        return loss.mean().item()
 
     def _greedy_decode(self, decoder_hidden, step_size):
         PAD_token = self.utt_vocab.word2id['<PAD>']

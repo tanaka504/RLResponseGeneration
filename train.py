@@ -71,8 +71,8 @@ class Reward:
         da_rwd = self.z_score_normalize(da_rwd)
 
         reward = ssn_pred + nli_pred + da_rwd
-        self.rewards = {'nli': (1 - nli_pred).data.tolist(),
-                        'ssn': (1 - ssn_pred).data.tolist(),
+        self.rewards = {'nli': nli_pred.data.tolist(),
+                        'ssn': ssn_pred.data.tolist(),
                         # 'ssn': 0.0,
                         'da_pred': [self.da_vocab.id2word[t] for t in da_predicted],
                         'da_estimate': [[self.da_vocab.id2word[t] for t in batch] for batch in da_estimate_topk],
@@ -144,6 +144,9 @@ def train(args, fine_tuning=False):
     _train_loss = None
     early_stop = 0
     indexes = [i for i in range(len(X_train))]
+    nli_rwd_bag = []
+    ssn_rwd_bag = []
+    da_rwd_bag = []
     for e in range(config['EPOCH']):
         if args.checkpoint:
             e += int(args.checkpoint)
@@ -183,15 +186,20 @@ def train(args, fine_tuning=False):
                 turn_tensor.append(torch.tensor([[t[i]] for t in turn_seq]).cuda())
             YU_tensor= torch.tensor([YU[-1] for YU in YU_seq]).cuda()
             loss, reward, _ = model.forward(X_utt=XU_tensor, Y_utt=YU_tensor, X_da=XD_tensor, turn=turn_tensor, step_size=step_size)
-            rewards.append(reward)
             if config['RL']:
                 nli_rwds.append(np.mean(reward_fn.rewards['nli']))
                 ssn_rwds.append(np.mean(reward_fn.rewards['ssn']))
                 da_rwds.append(np.mean(reward_fn.rewards['da_rwd']))
+                nli_rwd_bag.append(reward_fn.rewards['nli'])
+                ssn_rwd_bag.append(reward_fn.rewards['ssn'])
+                da_rwd_bag.append(reward_fn.rewards['da_rwd'])
+                # da_preds.append(reward_fn.rewards['da_pred'])
+                # da_estis.append(reward_fn.rewards['da_estimate'])
             else:
                 nli_rwds.append(0)
                 ssn_rwds.append(0)
                 da_rwds.append(0)
+            rewards.append(reward)
             print_total_loss += loss
             model_opt.step()
             k += step_size
@@ -239,6 +247,9 @@ def train(args, fine_tuning=False):
             save_model(e+1)
 
     print()
+    pickle.dump(nli_rwd_bag, open(os.path.join(config['log_dir'], 'nli_rwd.list'), 'wb'))
+    pickle.dump(ssn_rwd_bag, open(os.path.join(config['log_dir'], 'ssn_rwd.list'), 'wb'))
+    pickle.dump(da_rwd_bag, open(os.path.join(config['log_dir'], 'da_rwd.list'), 'wb'))
     log_f.close()
     print('Finish training | exec time: %.4f [sec]' % (time.time() - start))
 

@@ -14,7 +14,8 @@ sentence_pattern = re.compile(r'<BOS> (.*?) <EOS>')
 def evaluate(experiment):
     print('load vocab')
     config = initialize_env(experiment)
-    X_test, Y_test, XU_test, YU_test, turn = create_traindata(config=config, prefix='test')
+    # X_test, Y_test, XU_test, YU_test, turn = create_traindata(config=config, prefix='test')
+    X_test, Y_test, XU_test, YU_test, turn = create_traindata(config=config, prefix='train')
     da_vocab = da_Vocab(config=config, create_vocab=False)
     utt_vocab = utt_Vocab(config=config, create_vocab=False)
     X_test, Y_test = da_vocab.tokenize(X_test), da_vocab.tokenize(Y_test)
@@ -28,8 +29,8 @@ def evaluate(experiment):
                reward_fn=reward_fn,
                criterion=nn.CrossEntropyLoss(ignore_index=utt_vocab.word2id['<PAD>'], reduce=False),
                config=config).cuda()
-    # model.load_state_dict(torch.load(os.path.join(config['log_dir'], 'statevalidbest.model'), map_location=lambda storage, loc: storage))
-    model.load_state_dict(torch.load(os.path.join(config['log_root'], 'HRED_dd_pretrain', 'statevalidbest.model'), map_location=lambda storage, loc: storage))
+    model.load_state_dict(torch.load(os.path.join(config['log_dir'], 'statevalidbest.model'), map_location=lambda storage, loc: storage))
+    # model.load_state_dict(torch.load(os.path.join(config['log_root'], 'HRED_dd_pretrain', 'statevalidbest.model'), map_location=lambda storage, loc: storage))
 
     contradict = Contradict(da_vocab=da_vocab, utt_vocab=utt_vocab, config=config)
     c_perplexity = contradict.evaluate(model)
@@ -84,6 +85,7 @@ def evaluate(experiment):
         k += step_size
     print()
     nli_rwd = np.mean([score for ele in nli_rwds for score in ele])
+    nli_std = np.std()
     ssn_rwd = np.mean([score for ele in ssn_rwds for score in ele])
     da_rwd = np.mean([score for ele in da_rwds for score in ele])
     print('nli: {}, ssn: {}, da: {}, contradict-perplexity: {}'.format(nli_rwd, ssn_rwd, da_rwd, c_perplexity))

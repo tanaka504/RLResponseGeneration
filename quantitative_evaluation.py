@@ -14,7 +14,6 @@ def evaluation(experiment):
         print('RL_s2s Distinct-{}: {}'.format(n, rl_dist.score(n)))
 
 
-
 if __name__ == '__main__':
     args = parse()
     evaluation(args.expr)

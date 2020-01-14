@@ -88,10 +88,10 @@ class Reward:
                 pass
         return T
     def z_score_normalize(self, x):
-        xmean = x.mean().item()
-        xstd = torch.std(x).item()
-        zscore = (x - xmean) / xstd
-        return zscore
+        # xmean = x.mean().item()
+        # xstd = torch.std(x).item()
+        # zscore = (x - xmean) / xstd
+        return x
 
 def train(args, fine_tuning=False):
     config = initialize_env(args.expr)

@@ -136,13 +136,10 @@ def train(args, fine_tuning=False):
 
     print('---start training---')
     start = time.time()
-    _valid_loss = None
+    _monitor_score = None
     _train_loss = None
     early_stop = 0
     indexes = [i for i in range(len(X_train))]
-    nli_rwd_bag = []
-    ssn_rwd_bag = []
-    da_rwd_bag = []
     for e in range(config['EPOCH']):
         if args.checkpoint:
             e += int(args.checkpoint)
@@ -186,9 +183,6 @@ def train(args, fine_tuning=False):
                 nli_rwds.append(np.mean(reward_fn.rewards['nli']))
                 ssn_rwds.append(np.mean(reward_fn.rewards['ssn']))
                 da_rwds.append(np.mean(reward_fn.rewards['da_rwd']))
-                nli_rwd_bag.append(reward_fn.rewards['nli'])
-                ssn_rwd_bag.append(reward_fn.rewards['ssn'])
-                da_rwd_bag.append(reward_fn.rewards['da_rwd'])
                 # da_preds.append(reward_fn.rewards['da_pred'])
                 # da_estis.append(reward_fn.rewards['da_estimate'])
             else:
@@ -209,13 +203,20 @@ def train(args, fine_tuning=False):
         def save_model(filename):
             torch.save(model.state_dict(), os.path.join(config['log_dir'], 'state{}.model'.format(filename)))
 
-        if _valid_loss is None:
-            save_model('validbest')
-            _valid_loss = valid_bleu
+        if config['monitor'] == 'valid_bleu':
+            monitor_score = valid_bleu
+        elif config['monitor'] == 'valid_reward':
+            monitor_score = valid_reward
         else:
-            if _valid_loss < valid_bleu:
+            monitor_score = valid_loss
+
+        if _monitor_score is None:
+            save_model('validbest')
+            _monitor_score = monitor_score
+        else:
+            if _monitor_score < monitor_score:
                 save_model('validbest')
-                _valid_loss = valid_bleu
+                _monitor_score = monitor_score
                 print('valid loss update, save model')
 
         if _train_loss is None:
@@ -243,9 +244,6 @@ def train(args, fine_tuning=False):
             save_model(e+1)
 
     print()
-    pickle.dump(nli_rwd_bag, open(os.path.join(config['log_dir'], 'nli_rwd.list'), 'wb'))
-    pickle.dump(ssn_rwd_bag, open(os.path.join(config['log_dir'], 'ssn_rwd.list'), 'wb'))
-    pickle.dump(da_rwd_bag, open(os.path.join(config['log_dir'], 'da_rwd.list'), 'wb'))
     log_f.close()
     print('Finish training | exec time: %.4f [sec]' % (time.time() - start))
 

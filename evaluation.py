@@ -14,8 +14,8 @@ sentence_pattern = re.compile(r'<BOS> (.*?) <EOS>')
 def evaluate(experiment):
     print('load vocab')
     config = initialize_env(experiment)
-    # X_test, Y_test, XU_test, YU_test, turn = create_traindata(config=config, prefix='test')
-    X_test, Y_test, XU_test, YU_test, turn = create_traindata(config=config, prefix='train')
+    X_test, Y_test, XU_test, YU_test, turn = create_traindata(config=config, prefix='test')
+    # X_test, Y_test, XU_test, YU_test, turn = create_traindata(config=config, prefix='train')
     da_vocab = da_Vocab(config=config, create_vocab=False)
     utt_vocab = utt_Vocab(config=config, create_vocab=False)
     X_test, Y_test = da_vocab.tokenize(X_test), da_vocab.tokenize(Y_test)
@@ -41,7 +41,7 @@ def evaluate(experiment):
     nli_rwds = []
     ssn_rwds = []
     da_rwds = []
-    out_f = open('./data/result/result_{}_pretrain.tsv'.format(experiment), 'w')
+    out_f = open('./data/result/result_{}.tsv'.format(experiment), 'w')
     while k < len(indexes):
         step_size = min(batch_size, len(indexes) - k)
         batch_idx = indexes[k : k + step_size]
@@ -85,12 +85,15 @@ def evaluate(experiment):
         k += step_size
     print()
     nli_rwd = np.mean([score for ele in nli_rwds for score in ele])
-    nli_std = np.std()
+    nli_std = np.std([score for ele in nli_rwds for score in ele])
     ssn_rwd = np.mean([score for ele in ssn_rwds for score in ele])
+    ssn_std = np.std([score for ele in ssn_rwds for score in ele])
     da_rwd = np.mean([score for ele in da_rwds for score in ele])
+    da_std = np.std([score for ele in da_rwds for score in ele])
     print('nli: {}, ssn: {}, da: {}, contradict-perplexity: {}'.format(nli_rwd, ssn_rwd, da_rwd, c_perplexity))
+    print('nli: {}, ssn: {}, da: {}'.format(nli_std, ssn_std, da_std))
     out_f.close()
-    json.dump(results, open('./data/result/result_{}_pretrain.json'.format(experiment), 'w'), ensure_ascii=False)
+    json.dump(results, open('./data/result/result_{}.json'.format(experiment), 'w'), ensure_ascii=False)
 
 def calc_average(y_true, y_pred):
     p = precision_score(y_true=y_true, y_pred=y_pred, average='macro')

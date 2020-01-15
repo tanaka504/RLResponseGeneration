@@ -66,9 +66,9 @@ class Reward:
         # nli_pred: "probabilities of [entailment, neutral, contradiction]", List(batch_size, 3), scalability=[0,1]
 
         # normalize
-        nli_pred = self.z_score_normalize((1 - nli_pred))
-        ssn_pred = self.z_score_normalize((1 - ssn_pred))
-        da_rwd = self.z_score_normalize(da_rwd)
+        nli_pred = ((1 - nli_pred) - self.config['zmean_nli']) / self.config['zstd_nli']
+        ssn_pred = ((1 - ssn_pred) - self.config['zmean_ssn']) / self.config['zstd_ssn']
+        da_rwd = (da_rwd - self.config['zmean_da']) / self.config['zstd_da']
 
         reward = ssn_pred + nli_pred + da_rwd
         self.rewards = {'nli': nli_pred.data.tolist(),
@@ -87,11 +87,6 @@ class Reward:
             except:
                 pass
         return T
-    def z_score_normalize(self, x):
-        # xmean = x.mean().item()
-        # xstd = torch.std(x).item()
-        # zscore = (x - xmean) / xstd
-        return x
 
 def train(args, fine_tuning=False):
     config = initialize_env(args.expr)

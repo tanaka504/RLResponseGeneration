@@ -58,7 +58,6 @@ class DApredictModel(nn.Module):
                 da_context_output, da_context_hidden = self.da_context(da_encoder_hidden, da_context_hidden) # (batch_size, 1, DA_HIDDEN)
                 # da_contexts.append(da_context_output)
             # da_context_output = torch.stack(da_contexts).permute(0, 1)
-
         if self.config['DApred']['use_utt'] and not self.config['DApred']['use_uttcontext']:
             utt_encoder_hidden = self.utt_encoder.initHidden(step_size)
             utt_encoder_output, utt_encoder_hidden = self.utt_encoder(X_utt[-1], utt_encoder_hidden) # (batch_size, 1, UTT_HIDDEN)

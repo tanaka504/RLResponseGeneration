@@ -13,6 +13,7 @@ class Reward:
     def __init__(self, utt_vocab, da_vocab, config):
         self.utt_vocab = utt_vocab
         self.da_vocab = da_vocab
+        self.config = config
         self.ssn_model = OrderPredictor(utt_vocab=utt_vocab, da_vocab=da_vocab, config=config).cuda()
         self.ssn_model.load_state_dict(torch.load(os.path.join(config['log_root'], 'order_predict', 'orderpred_statevalidbest.model'),
                                              map_location=lambda storage, loc: storage))

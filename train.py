@@ -41,9 +41,11 @@ class Reward:
         X_da = [torch.tensor(xda).cuda() for xda in da_context]
 
         # DA reward
+        da_predicted = np.argmax(self.da_predictor.predict(X_da=X_da,
+                                                           X_utt=[torch.tensor(sentence).clone().cuda() for sentence in context] + [torch.tensor(hyp).clone().cuda()],
+                                                           turn=[torch.tensor(t).clone().cuda() for t in turn] + [torch.tensor([[1] for _ in range(step_size)]).clone().cuda()],
+                                                           step_size=step_size), axis=1)
         if self.config['NRG']['da_rwd']:
-            da_predicted = np.argmax(self.da_predictor.predict(X_da=X_da, X_utt=[torch.tensor(sentence).clone().cuda() for sentence in context] + [torch.tensor(hyp).clone().cuda()],
-                                                               turn=[torch.tensor(t).clone().cuda() for t in turn] + [torch.tensor([[1] for _ in range(step_size)]).clone().cuda()], step_size=step_size), axis=1)
             da_candidate = self.da_estimator.predict(X_da=X_da, X_utt=[torch.tensor(sentence).clone().cuda() for sentence in context], turn=[torch.tensor(t).clone().cuda() for t in turn], step_size=step_size)
             # da_candidate: "probabilities of next DA", Numpy(batch_size, len(da_vocab)), scalability=[0,1]
             da_estimate_topk = np.argsort(da_candidate, axis=1)[:, -2:][::-1]

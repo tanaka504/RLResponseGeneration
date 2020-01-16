@@ -6,16 +6,15 @@ from sklearn.metrics import precision_score, recall_score, f1_score, confusion_m
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
-import pickle
 import json
 
 
-sentence_pattern = re.compile(r'<BOS> (.*?) <EOS>')
 def evaluate(experiment):
     print('load vocab')
     config = initialize_env(experiment)
+    _ = create_traindata(config=config, prefix='train')
+    _ = create_traindata(config=config, prefix='valid')
     X_test, Y_test, XU_test, YU_test, turn = create_traindata(config=config, prefix='test')
-    # X_test, Y_test, XU_test, YU_test, turn = create_traindata(config=config, prefix='train')
     da_vocab = da_Vocab(config=config, create_vocab=False)
     utt_vocab = utt_Vocab(config=config, create_vocab=False)
     X_test, Y_test = da_vocab.tokenize(X_test), da_vocab.tokenize(Y_test)
@@ -78,6 +77,11 @@ def evaluate(experiment):
             contexts = [text_postprocess(' '.join([utt_vocab.id2word[wid] for wid in sent])) for sent in XU_seq[bidx]]
             results.append({
                 'hyp': hyp,
+                'da_context': [da_vocab.id2word[token] for token in X_seq[bidx]],
+                'da_pred': reward_fn.rewards['da_pred'][bidx],
+                'nli_rwd': reward_fn.rewards['nli'][bidx],
+                'ssn_rwd': reward_fn.rewards['ssn'][bidx],
+                'da_rwd': reward_fn.rewards['da_rwd'][bidx],
                 'ref': ref,
                 'context': contexts,
             })

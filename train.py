@@ -45,6 +45,7 @@ class Reward:
                                                            X_utt=[torch.tensor(sentence).clone().cuda() for sentence in context] + [torch.tensor(hyp).clone().cuda()],
                                                            turn=[torch.tensor(t).clone().cuda() for t in turn] + [torch.tensor([[1] for _ in range(step_size)]).clone().cuda()],
                                                            step_size=step_size), axis=1)
+        self.rewards['da_pred'] = [self.da_vocab.id2word[t] for t in da_predicted]
         if self.config['NRG']['da_rwd']:
             da_candidate = self.da_estimator.predict(X_da=X_da, X_utt=[torch.tensor(sentence).clone().cuda() for sentence in context], turn=[torch.tensor(t).clone().cuda() for t in turn], step_size=step_size)
             # da_candidate: "probabilities of next DA", Numpy(batch_size, len(da_vocab)), scalability=[0,1]
@@ -58,7 +59,6 @@ class Reward:
             da_rwd = torch.tensor(da_rwd).cuda()
             da_rwd = (da_rwd - self.config['zmean_da']) / self.config['zstd_da']
             self.rewards['da_rwd'] = da_rwd.data.tolist()
-            self.rewards['da_pred'] = [self.da_vocab.id2word[t] for t in da_predicted]
             self.rewards['da_estimate'] = [[self.da_vocab.id2word[t] for t in batch] for batch in da_estimate_topk]
         else:
             self.rewards['da_rwd'] = [0]
@@ -71,7 +71,7 @@ class Reward:
             # ssn_pred: "probability of misordered", Tensor(batch_size), scalability=[0,1]
             self.rewards['ssn'] = ssn_pred.data.tolist()
         else:
-            self.rewards['ssn'] = 0
+            self.rewards['ssn'] = [0]
             ssn_pred = 0
 
         # contradiction reward
@@ -86,7 +86,7 @@ class Reward:
             # nli_pred: "probabilities of [entailment, neutral, contradiction]", List(batch_size, 3), scalability=[0,1]
             self.rewards['nli'] = nli_pred.data.tolist()
         else:
-            self.rewards['nli'] = 0
+            self.rewards['nli'] = [0]
             nli_pred = 0
 
         reward = ssn_pred + nli_pred + da_rwd

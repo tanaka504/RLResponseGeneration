@@ -75,7 +75,7 @@ class Reward:
             ssn_pred = 0
 
         # contradiction reward
-        if self.config['NRG']['ssn_rwd']:
+        if self.config['NRG']['nli_rwd']:
             nli_preds = []
             for sentence in context_decoded:
                 nli_pred = self.nli_model.predict(x1=sentence, x2=hyp_decoded)

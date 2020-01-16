@@ -33,6 +33,7 @@ class Reward:
         turn:    List(window_size, batch_size, 1)
         step_size:  Scalar
         """
+        self.rewards = {}
         # preprocess
         hyp = self.repadding(hyp)
         context_decoded = [[text_postprocess(' '.join([self.utt_vocab.id2word[token] for token in sentence])) for sentence in conv] for conv in context]
@@ -40,44 +41,53 @@ class Reward:
         X_da = [torch.tensor(xda).cuda() for xda in da_context]
 
         # DA reward
-        da_predicted = np.argmax(self.da_predictor.predict(X_da=X_da, X_utt=[torch.tensor(sentence).clone().cuda() for sentence in context] + [torch.tensor(hyp).clone().cuda()],
-                                                           turn=[torch.tensor(t).clone().cuda() for t in turn] + [torch.tensor([[1] for _ in range(step_size)]).clone().cuda()], step_size=step_size), axis=1)
-        da_candidate = self.da_estimator.predict(X_da=X_da, X_utt=[torch.tensor(sentence).clone().cuda() for sentence in context], turn=[torch.tensor(t).clone().cuda() for t in turn], step_size=step_size)
-        # da_candidate: "probabilities of next DA", Numpy(batch_size, len(da_vocab)), scalability=[0,1]
-        da_estimate_topk = np.argsort(da_candidate, axis=1)[:, -2:][::-1]
-        da_rwd = []
-        for bidx in range(len(da_candidate)):
-            if da_predicted[bidx] in da_estimate_topk[bidx]:
-                da_rwd.append(da_candidate[bidx][da_predicted[bidx]])
-            else:
-                da_rwd.append(0.0)
-        da_rwd = torch.tensor(da_rwd).cuda()
+        if self.config['NRG']['da_rwd']:
+            da_predicted = np.argmax(self.da_predictor.predict(X_da=X_da, X_utt=[torch.tensor(sentence).clone().cuda() for sentence in context] + [torch.tensor(hyp).clone().cuda()],
+                                                               turn=[torch.tensor(t).clone().cuda() for t in turn] + [torch.tensor([[1] for _ in range(step_size)]).clone().cuda()], step_size=step_size), axis=1)
+            da_candidate = self.da_estimator.predict(X_da=X_da, X_utt=[torch.tensor(sentence).clone().cuda() for sentence in context], turn=[torch.tensor(t).clone().cuda() for t in turn], step_size=step_size)
+            # da_candidate: "probabilities of next DA", Numpy(batch_size, len(da_vocab)), scalability=[0,1]
+            da_estimate_topk = np.argsort(da_candidate, axis=1)[:, -2:][::-1]
+            da_rwd = []
+            for bidx in range(len(da_candidate)):
+                if da_predicted[bidx] in da_estimate_topk[bidx]:
+                    da_rwd.append(da_candidate[bidx][da_predicted[bidx]])
+                else:
+                    da_rwd.append(0.0)
+            da_rwd = torch.tensor(da_rwd).cuda()
+            self.rewards['da_rwd'] = da_rwd.data.tolist()
+            self.rewards['da_pred'] = [self.da_vocab.id2word[t] for t in da_predicted]
+            self.rewards['da_estimate'] = [[self.da_vocab.id2word[t] for t in batch] for batch in da_estimate_topk]
+            da_rwd = (da_rwd - self.config['zmean_da']) / self.config['zstd_da']
+        else:
+            self.rewards['da_rwd'] = [0]
+            da_rwd = 0
 
         # ordered reward
-        ssn_pred = self.ssn_model.predict(XTarget=[torch.tensor(sentence).clone().cuda() for sentence in context] + [torch.tensor(hyp).clone().cuda()], DATarget=[torch.tensor(da).clone().cuda() for da in da_context + [da_predicted]], step_size=step_size)
-        # ssn_pred: "probability of misordered", Tensor(batch_size), scalability=[0,1]
+        if self.config['NRG']['ssn_rwd']:
+            ssn_pred = self.ssn_model.predict(XTarget=[torch.tensor(sentence).clone().cuda() for sentence in context] + [torch.tensor(hyp).clone().cuda()], DATarget=[torch.tensor(da).clone().cuda() for da in da_context + [da_predicted]], step_size=step_size)
+            # ssn_pred: "probability of misordered", Tensor(batch_size), scalability=[0,1]
+            self.rewards['ssn'] = ssn_pred.data.tolist()
+            ssn_pred = ((1 - ssn_pred) - self.config['zmean_ssn']) / self.config['zstd_ssn']
+        else:
+            self.rewards['ssn'] = 0
+            ssn_pred = 0
 
         # contradiction reward
-        nli_preds = []
-        for sentence in context_decoded:
-            nli_pred = self.nli_model.predict(x1=sentence, x2=hyp_decoded)
-            nli_pred = nli_pred[:, 2]
-            nli_preds.append(nli_pred)
-        nli_pred = torch.tensor(nli_preds).cuda().max(dim=0)[0]
-        # nli_pred: "probabilities of [entailment, neutral, contradiction]", List(batch_size, 3), scalability=[0,1]
-
-        # normalize
-        nli_pred = ((1 - nli_pred) - self.config['zmean_nli']) / self.config['zstd_nli']
-        ssn_pred = ((1 - ssn_pred) - self.config['zmean_ssn']) / self.config['zstd_ssn']
-        da_rwd = (da_rwd - self.config['zmean_da']) / self.config['zstd_da']
+        if self.config['NRG']['ssn_rwd']:
+            nli_preds = []
+            for sentence in context_decoded:
+                nli_pred = self.nli_model.predict(x1=sentence, x2=hyp_decoded)
+                nli_pred = nli_pred[:, 2]
+                nli_preds.append(nli_pred)
+            nli_pred = torch.tensor(nli_preds).cuda().max(dim=0)[0]
+            # nli_pred: "probabilities of [entailment, neutral, contradiction]", List(batch_size, 3), scalability=[0,1]
+            self.rewards['nli'] = nli_pred.data.tolist()
+            nli_pred = ((1 - nli_pred) - self.config['zmean_nli']) / self.config['zstd_nli']
+        else:
+            self.rewards['nli'] = 0
+            nli_pred = 0
 
         reward = ssn_pred + nli_pred + da_rwd
-        self.rewards = {'nli': nli_pred.data.tolist(),
-                        'ssn': ssn_pred.data.tolist(),
-                        # 'ssn': 0.0,
-                        'da_pred': [self.da_vocab.id2word[t] for t in da_predicted],
-                        'da_estimate': [[self.da_vocab.id2word[t] for t in batch] for batch in da_estimate_topk],
-                        'da_rwd': da_rwd.data.tolist()}
         return reward
 
     def repadding(self, T):

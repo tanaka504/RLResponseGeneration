@@ -339,23 +339,3 @@ def text_postprocess(text):
     text = text.split('<EOS>')[0]
     text = re.sub(r'<BOS>', '', text)
     return text
-
-def z_score_normalize():
-    model_dir = './data/model_dd/RL_s2s_dd'
-
-    def z_score(data):
-        print('mean: ', data.mean())
-        print('std: ', np.std(data))
-
-    nli_rewards = pickle.load(open(os.path.join(model_dir, 'nli_rwd.list'), 'rb'))
-    ssn_rewards = pickle.load(open(os.path.join(model_dir, 'ssn_rwd.list'), 'rb'))
-    da_rewards = pickle.load(open(os.path.join(model_dir, 'da_rwd.list'), 'rb'))
-    nli_rewards = np.array([1-score for ele in nli_rewards for score in ele])
-    ssn_rewards = np.array([1-score for ele in ssn_rewards for score in ele])
-    da_rewards = np.array([score for ele in da_rewards for score in ele])
-    z_score(nli_rewards)
-    z_score(ssn_rewards)
-    z_score(da_rewards)
-
-if __name__ == '__main__':
-    z_score_normalize()

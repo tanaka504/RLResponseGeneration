@@ -3,7 +3,7 @@ from torch import optim
 import time
 from utils import *
 import random
-from sklearn.metrics import accuracy_score
+from sklearn.metrics import accuracy_score, f1_score
 import numpy as np
 from collections import Counter
 
@@ -258,6 +258,7 @@ def evaluate(experiment):
     k = 0
     indexes = [i for i in range(len(XU_test))]
     acc = []
+    macro_f = []
     while k < len(indexes):
         step_size = min(batch_size, len(indexes) - k)
         batch_idx = indexes[k: k + step_size]
@@ -284,8 +285,11 @@ def evaluate(experiment):
         preds = predictor.predict(X_da=XD_tensor, X_utt=XU_tensor, turn=turn_tensor, step_size=step_size)
         preds = np.argmax(preds, axis=1)
         acc.append(accuracy_score(y_pred=preds, y_true=YD_tensor.data.tolist()))
+        macro_f.append(f1_score(y_true=YD_tensor.data.tolist(), y_pred=preds, average='macro'))
         k += step_size
     print('Avg. Accuracy: ', np.mean(acc))
+    print('Avg. macro-F: ', np.mean(macro_f))
+
 
 if __name__ == '__main__':
     args = parse()

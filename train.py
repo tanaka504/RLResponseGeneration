@@ -61,7 +61,7 @@ class Reward:
             self.rewards['da_rwd'] = da_rwd.data.tolist()
             self.rewards['da_estimate'] = [[self.da_vocab.id2word[t] for t in batch] for batch in da_estimate_topk]
         else:
-            self.rewards['da_rwd'] = [0]
+            self.rewards['da_rwd'] = [0] * step_size
             da_rwd = 0
 
         # ordered reward
@@ -71,7 +71,7 @@ class Reward:
             # ssn_pred: "probability of misordered", Tensor(batch_size), scalability=[0,1]
             self.rewards['ssn'] = ssn_pred.data.tolist()
         else:
-            self.rewards['ssn'] = [0]
+            self.rewards['ssn'] = [0] * step_size
             ssn_pred = 0
 
         # contradiction reward
@@ -86,7 +86,7 @@ class Reward:
             # nli_pred: "probabilities of [entailment, neutral, contradiction]", List(batch_size, 3), scalability=[0,1]
             self.rewards['nli'] = nli_pred.data.tolist()
         else:
-            self.rewards['nli'] = [0]
+            self.rewards['nli'] = [0] * step_size
             nli_pred = 0
 
         reward = ssn_pred + nli_pred + da_rwd

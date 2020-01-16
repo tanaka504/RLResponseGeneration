@@ -10,10 +10,11 @@ from DApredict import DApredictModel
 
 
 class Reward:
-    def __init__(self, utt_vocab, da_vocab, config):
+    def __init__(self, utt_vocab, da_vocab, config, mode='train'):
         self.utt_vocab = utt_vocab
         self.da_vocab = da_vocab
         self.config = config
+        self.mode = mode
         self.ssn_model = OrderPredictor(utt_vocab=utt_vocab, da_vocab=da_vocab, config=config).cuda()
         self.ssn_model.load_state_dict(torch.load(os.path.join(config['log_root'], 'order_predict', 'orderpred_statevalidbest.model'),
                                              map_location=lambda storage, loc: storage))
@@ -46,7 +47,7 @@ class Reward:
                                                            turn=[torch.tensor(t).clone().cuda() for t in turn] + [torch.tensor([[1] for _ in range(step_size)]).clone().cuda()],
                                                            step_size=step_size), axis=1)
         self.rewards['da_pred'] = [self.da_vocab.id2word[t] for t in da_predicted]
-        if self.config['NRG']['da_rwd']:
+        if self.config['NRG']['da_rwd'] or self.mode == 'test':
             da_candidate = self.da_estimator.predict(X_da=X_da, X_utt=[torch.tensor(sentence).clone().cuda() for sentence in context], turn=[torch.tensor(t).clone().cuda() for t in turn], step_size=step_size)
             # da_candidate: "probabilities of next DA", Numpy(batch_size, len(da_vocab)), scalability=[0,1]
             da_estimate_topk = np.argsort(da_candidate, axis=1)[:, -2:][::-1]
@@ -65,7 +66,7 @@ class Reward:
             da_rwd = 0
 
         # ordered reward
-        if self.config['NRG']['ssn_rwd']:
+        if self.config['NRG']['ssn_rwd'] or self.mode == 'test':
             ssn_pred = self.ssn_model.predict(XTarget=[torch.tensor(sentence).clone().cuda() for sentence in context] + [torch.tensor(hyp).clone().cuda()], DATarget=[torch.tensor(da).clone().cuda() for da in da_context + [da_predicted]], step_size=step_size)
             ssn_pred = ((1 - ssn_pred) - self.config['zmean_ssn']) / self.config['zstd_ssn']
             # ssn_pred: "probability of misordered", Tensor(batch_size), scalability=[0,1]
@@ -75,7 +76,7 @@ class Reward:
             ssn_pred = 0
 
         # contradiction reward
-        if self.config['NRG']['nli_rwd']:
+        if self.config['NRG']['nli_rwd'] or self.mode == 'test':
             nli_preds = []
             for sentence in context_decoded:
                 nli_pred = self.nli_model.predict(x1=sentence, x2=hyp_decoded)

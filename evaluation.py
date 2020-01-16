@@ -21,7 +21,7 @@ def evaluate(experiment):
     XU_test, YU_test = utt_vocab.tokenize(XU_test), utt_vocab.tokenize(YU_test)
 
     print('load models')
-    reward_fn = Reward(utt_vocab=utt_vocab, da_vocab=da_vocab, config=config)
+    reward_fn = Reward(utt_vocab=utt_vocab, da_vocab=da_vocab, config=config, mode='test')
     model = RL(utt_vocab=utt_vocab,
                da_vocab=da_vocab,
                fine_tuning=False,

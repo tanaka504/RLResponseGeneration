@@ -60,7 +60,7 @@ class RL(nn.Module):
             turn = [t.data.tolist() for t in turn]
             reward = self.reward_fn.reward(hyp=pred_seq, ref=ref_seq, context=context, da_context=da_context, turn=turn, step_size=step_size)
             b = self.reward_fn.reward(hyp=base_seq, ref=ref_seq, context=context, da_context=da_context, turn=turn, step_size=step_size)
-            # print('sample: {}, base: {}'.format(reward, b))
+
             # Optimized with REINFORCE
             RL_loss = CE_loss * (reward - b)
             loss = CE_loss * self.config['NRG']['lambda'] + RL_loss * (1 - self.config['NRG']['lambda'])

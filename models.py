@@ -81,7 +81,6 @@ class RL(nn.Module):
             #     pred_seq, utt_decoder_hidden = self._beam_decode(decoder=self.utt_decoder,
             #                                                      decoder_hiddens=utt_decoder_hidden,
             #                                                      config=self.config)
-
             # else:
             pred_seq, utt_decoder_hidden = self._greedy_decode(utt_decoder_hidden, step_size)
         return torch.stack(pred_seq).transpose(0, 1).data.tolist()

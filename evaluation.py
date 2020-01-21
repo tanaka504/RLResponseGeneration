@@ -8,6 +8,8 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import json, random, copy
 
+random.seed(42)
+
 
 def evaluate(experiment):
     print('load vocab')

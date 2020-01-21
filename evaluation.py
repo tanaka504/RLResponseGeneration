@@ -63,14 +63,15 @@ def evaluate(experiment):
             X_tensor.append([[x[i]] for x in X_seq])
             XU_tensor.append(torch.tensor([XU[i] for XU in XU_seq]).cuda())
             turn_tensor.append([[t[i]] for t in turn_seq])
-        XU_tensor = [XU_tensor[-1]]
+        Y_tensor = [y[-1] for y in Y_seq]
+        YU_tensor = [y[-1] for y in YU_seq]
         pred_seq = model.predict(X_utt=XU_tensor, step_size=step_size)
+        perplexity = model.perplexity(X=XU_tensor, Y=YU_tensor, step_size=step_size)
         reward = reward_fn.reward(hyp=pred_seq, ref=None, context=[[s for s in X.data.tolist()] for X in XU_tensor], da_context=X_tensor, turn=turn_tensor, step_size=step_size)
         nli_rwds.append(reward_fn.rewards['nli'])
         ssn_rwds.append(reward_fn.rewards['ssn'])
         da_rwds.append(reward_fn.rewards['da_rwd'])
-        Y_tensor = [y[-1] for y in Y_seq]
-        YU_tensor = [y[-1] for y in YU_seq]
+
         for bidx in range(len(XU_seq)):
             hyp = text_postprocess(' '.join([utt_vocab.id2word[wid] for wid in pred_seq[bidx]]))
             ref = text_postprocess(' '.join(utt_vocab.id2word[wid] for wid in YU_tensor[bidx]))

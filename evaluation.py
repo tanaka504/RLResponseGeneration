@@ -6,7 +6,7 @@ from sklearn.metrics import precision_score, recall_score, f1_score, confusion_m
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
-import json
+import json, random, copy
 
 
 def evaluate(experiment):
@@ -32,7 +32,7 @@ def evaluate(experiment):
     # model.load_state_dict(torch.load(os.path.join(config['log_root'], 'HRED_dd_pretrain', 'statevalidbest.model'), map_location=lambda storage, loc: storage))
 
     contradict = Contradict(da_vocab=da_vocab, utt_vocab=utt_vocab, config=config)
-    c_perplexity = contradict.evaluate(model)
+    c_ppl = contradict.evaluate(model)
     indexes = [i for i in range(len(XU_test))]
     batch_size = config['BATCH_SIZE']
     results = []
@@ -40,6 +40,7 @@ def evaluate(experiment):
     nli_rwds = []
     ssn_rwds = []
     da_rwds = []
+    shuffle_ppls = []
     out_f = open('./data/result/result_{}.tsv'.format(experiment), 'w')
     while k < len(indexes):
         step_size = min(batch_size, len(indexes) - k)
@@ -51,25 +52,36 @@ def evaluate(experiment):
         XU_seq = [XU_test[seq_idx] for seq_idx in batch_idx]
         YU_seq = [YU_test[seq_idx] for seq_idx in batch_idx]
         turn_seq = [turn[seq_idx] for seq_idx in batch_idx]
+        XU_seq_shuffled, YU_seq_shuffled = shuffle_context(XU_seq, YU_seq)
         assert len(X_seq) == len(Y_seq), 'Unexpect sequence len in test data'
-        max_conv_len = max(len(s) for s in XU_seq)
         X_tensor = []
         XU_tensor = []
+        XU_tensor_shuffled = []
         turn_tensor = []
+        max_conv_len = max(len(s) for s in XU_seq)
         for i in range(0, max_conv_len):
             max_xseq_len = max(len(XU[i]) + 1 for XU in XU_seq)
+            max_xseq_len_shuffled = max(len(XU[i]) + 1 for XU in XU_seq_shuffled)
             max_yseq_len = max(len(YU[i]) + 1 for YU in YU_seq)
+
             for ci in range(len(XU_seq)):
                 XU_seq[ci][i] = XU_seq[ci][i] + [utt_vocab.word2id['<PAD>']] * (max_xseq_len - len(XU_seq[ci][i]))
                 YU_seq[ci][i] = YU_seq[ci][i] + [utt_vocab.word2id['<PAD>']] * (max_yseq_len - len(YU_seq[ci][i]))
+                XU_seq_shuffled[ci][i] = XU_seq_shuffled[ci][i] + [utt_vocab.word2id['<PAD>']] * (max_xseq_len_shuffled - len(XU_seq_shuffled[ci][i]))
             X_tensor.append([[x[i]] for x in X_seq])
             XU_tensor.append(torch.tensor([XU[i] for XU in XU_seq]).cuda())
+            XU_tensor_shuffled.append(torch.tensor([XU[i] for XU in XU_seq_shuffled]).cuda())
             turn_tensor.append([[t[i]] for t in turn_seq])
+        max_yseq_len_shuffled = max(len(YU) + 1 for YU in YU_seq_shuffled)
+        for bidx in range(len(YU_seq_shuffled)):
+            YU_seq_shuffled[bidx] = YU_seq_shuffled[bidx] + [utt_vocab.word2id['<PAD>']] * (max_yseq_len_shuffled - len(YU_seq_shuffled[bidx]))
         Y_tensor = [y[-1] for y in Y_seq]
         YU_tensor = [y[-1] for y in YU_seq]
         pred_seq = model.predict(X_utt=XU_tensor, step_size=step_size)
-        perplexity = model.perplexity(X=XU_tensor, Y=torch.tensor(YU_tensor).cuda(), step_size=step_size)
+        # perplexity = model.perplexity(X=XU_tensor, Y=torch.tensor(YU_tensor).cuda(), step_size=step_size)
+        shuffle_ppl = model.perplexity(X=XU_tensor_shuffled, Y=torch.tensor(YU_seq_shuffled).cuda(), step_size=step_size)
         reward = reward_fn.reward(hyp=pred_seq, ref=None, context=[[s for s in X.data.tolist()] for X in XU_tensor], da_context=X_tensor, turn=turn_tensor, step_size=step_size)
+        shuffle_ppls.append(shuffle_ppl)
         nli_rwds.append(reward_fn.rewards['nli'])
         ssn_rwds.append(reward_fn.rewards['ssn'])
         da_rwds.append(reward_fn.rewards['da_rwd'])
@@ -97,10 +109,12 @@ def evaluate(experiment):
     ssn_std = np.std([score for ele in ssn_rwds for score in ele])
     da_rwd = np.mean([score for ele in da_rwds for score in ele])
     da_std = np.std([score for ele in da_rwds for score in ele])
-    print('nli: {}, ssn: {}, da: {}, contradict-perplexity: {}'.format(nli_rwd, ssn_rwd, da_rwd, c_perplexity))
+    print('contradict ppl: {}, shuffle ppl: {}'.format(c_ppl, np.mean(shuffle_ppls)))
+    print('nli: {}, ssn: {}, da: {}'.format(nli_rwd, ssn_rwd, da_rwd))
     print('nli: {}, ssn: {}, da: {}'.format(nli_std, ssn_std, da_std))
     out_f.close()
     json.dump(results, open('./data/result/result_{}.json'.format(experiment), 'w'), ensure_ascii=False)
+
 
 def calc_average(y_true, y_pred):
     p = precision_score(y_true=y_true, y_pred=y_pred, average='macro')
@@ -126,6 +140,16 @@ def save_cmx(y_true, y_pred, expr):
     plt.ylabel('True Label')
     plt.tight_layout()
     plt.savefig('./data/images/cmx_{}.png'.format(expr))
+
+def shuffle_context(X, Y):
+    X_new = copy.copy(X)
+    indexes = [i for i in range(len(X[0]))]
+    Y_new = []
+    for bidx in range(len(X)):
+        swap_idx = random.choice(indexes)
+        Y_new.append(X_new[bidx][swap_idx])
+        X_new[bidx][swap_idx] = Y[bidx][-1]
+    return X_new, Y_new
 
 
 if __name__ == '__main__':

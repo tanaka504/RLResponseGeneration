@@ -299,6 +299,7 @@ class seq2seq(nn.Module):
         return torch.stack(pred_seq).transpose(0, 1).data.tolist()
 
     def perplexity(self, X, Y, step_size):
+        X = X[0] if type(X) == list else X
         with torch.no_grad():
             loss = 0
             encoder_hidden = self.encoder.initHidden(step_size)

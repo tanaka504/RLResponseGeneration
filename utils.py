@@ -238,6 +238,7 @@ class Contradict:
         print()
         return np.mean(losses)
 
+
 def calc_bleu(refs, hyps):
         refs = [[list(map(str, ref))] for ref in refs]
         hyps = [list(map(str, hyp)) for hyp in hyps]

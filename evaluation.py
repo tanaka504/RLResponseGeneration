@@ -66,7 +66,7 @@ def evaluate(experiment):
         Y_tensor = [y[-1] for y in Y_seq]
         YU_tensor = [y[-1] for y in YU_seq]
         pred_seq = model.predict(X_utt=XU_tensor, step_size=step_size)
-        perplexity = model.perplexity(X=XU_tensor, Y=YU_tensor, step_size=step_size)
+        perplexity = model.perplexity(X=XU_tensor, Y=torch.tensor(YU_tensor).cuda(), step_size=step_size)
         reward = reward_fn.reward(hyp=pred_seq, ref=None, context=[[s for s in X.data.tolist()] for X in XU_tensor], da_context=X_tensor, turn=turn_tensor, step_size=step_size)
         nli_rwds.append(reward_fn.rewards['nli'])
         ssn_rwds.append(reward_fn.rewards['ssn'])

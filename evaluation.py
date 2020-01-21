@@ -58,8 +58,10 @@ def evaluate(experiment):
         turn_tensor = []
         for i in range(0, max_conv_len):
             max_xseq_len = max(len(XU[i]) + 1 for XU in XU_seq)
+            max_yseq_len = max(len(YU[i]) + 1 for YU in YU_seq)
             for ci in range(len(XU_seq)):
                 XU_seq[ci][i] = XU_seq[ci][i] + [utt_vocab.word2id['<PAD>']] * (max_xseq_len - len(XU_seq[ci][i]))
+                YU_seq[ci][i] = YU_seq[ci][i] + [utt_vocab.word2id['<PAD>']] * (max_yseq_len - len(YU_seq[ci][i]))
             X_tensor.append([[x[i]] for x in X_seq])
             XU_tensor.append(torch.tensor([XU[i] for XU in XU_seq]).cuda())
             turn_tensor.append([[t[i]] for t in turn_seq])

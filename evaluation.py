@@ -33,8 +33,8 @@ def evaluate(experiment):
     model.load_state_dict(torch.load(os.path.join(config['log_dir'], 'statevalidbest.model'), map_location=lambda storage, loc: storage))
     # model.load_state_dict(torch.load(os.path.join(config['log_root'], 'HRED_dd_pretrain', 'statevalidbest.model'), map_location=lambda storage, loc: storage))
 
-    contradict = Contradict(da_vocab=da_vocab, utt_vocab=utt_vocab, config=config)
-    c_ppl = contradict.evaluate(model)
+    # contradict = Contradict(da_vocab=da_vocab, utt_vocab=utt_vocab, config=config)
+    # c_ppl = contradict.evaluate(model)
     indexes = [i for i in range(len(XU_test))]
     batch_size = config['BATCH_SIZE']
     results = []
@@ -43,7 +43,7 @@ def evaluate(experiment):
     ssn_rwds = []
     da_rwds = []
     shuffle_ppls = []
-    out_f = open('./data/result/result_{}.tsv'.format(experiment), 'w')
+    # out_f = open('./data/result/result_{}.tsv'.format(experiment), 'w')
     while k < len(indexes):
         step_size = min(batch_size, len(indexes) - k)
         batch_idx = indexes[k : k + step_size]
@@ -87,7 +87,6 @@ def evaluate(experiment):
         nli_rwds.append(reward_fn.rewards['nli'])
         ssn_rwds.append(reward_fn.rewards['ssn'])
         da_rwds.append(reward_fn.rewards['da_rwd'])
-
         for bidx in range(len(XU_seq)):
             hyp = text_postprocess(' '.join([utt_vocab.id2word[wid] for wid in pred_seq[bidx]]))
             ref = text_postprocess(' '.join(utt_vocab.id2word[wid] for wid in YU_tensor[bidx]))
@@ -102,7 +101,7 @@ def evaluate(experiment):
                 'ref': ref,
                 'context': contexts,
             })
-            out_f.write('{}\t{}\t{}\n'.format('|'.join(contexts), hyp, ref))
+            # out_f.write('{}\t{}\t{}\n'.format('|'.join(contexts), hyp, ref))
         k += step_size
     print()
     nli_rwd = np.mean([score for ele in nli_rwds for score in ele])
@@ -144,10 +143,10 @@ def save_cmx(y_true, y_pred, expr):
     plt.savefig('./data/images/cmx_{}.png'.format(expr))
 
 def shuffle_context(X, Y):
-    X_new = copy.copy(X)
+    X_new = copy.deepcopy(X)
     indexes = [i for i in range(len(X[0]))]
     Y_new = []
-    for bidx in range(len(X)):
+    for bidx in range(len(X_new)):
         swap_idx = random.choice(indexes)
         Y_new.append(X_new[bidx][swap_idx])
         X_new[bidx][swap_idx] = Y[bidx][-1]

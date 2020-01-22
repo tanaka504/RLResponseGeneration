@@ -1,12 +1,8 @@
 import os, re, json, math
-import matplotlib.pyplot as plt
 import torch
 from nltk import tokenize
 from nltk.translate.bleu_score import sentence_bleu, corpus_bleu, SmoothingFunction
 import pickle
-import pandas as pd
-import seaborn as sns
-from sklearn.metrics import confusion_matrix
 from gensim import corpora
 import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer

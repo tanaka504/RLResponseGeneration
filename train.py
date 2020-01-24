@@ -212,7 +212,7 @@ def train(args, fine_tuning=False):
         da_rwd = np.mean(da_rwds)
         print('nli: {}, ssn: {}, da: {}'.format(nli_rwd, ssn_rwd, da_rwd))
         valid_loss, valid_reward, valid_bleu = validation(XU_valid=XU_valid, YU_valid=YU_valid, XD_valid=X_valid, turn_valid=turn_valid, model=model, utt_vocab=utt_vocab, config=config)
-        log_f.write('{},{},{},{},{},{},{},{}\n'.format(e + 1, print_total_loss, valid_loss, valid_bleu, valid_reward, nli_rwd, ssn_rwd, da_rwd))
+        log_f.write('{},{},{},{},{},{},{},{},{}\n'.format(e + 1, print_total_loss, np.mean(rewards), valid_loss, valid_bleu, valid_reward, nli_rwd, ssn_rwd, da_rwd))
         def save_model(filename):
             torch.save(model.state_dict(), os.path.join(config['log_dir'], 'state{}.model'.format(filename)))
 

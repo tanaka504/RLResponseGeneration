@@ -58,7 +58,7 @@ class Reward:
                 else:
                     da_rwd.append(0.0)
             da_rwd = torch.tensor(da_rwd).cuda()
-            da_rwd = (da_rwd - self.config['zmean_da']) / self.config['zstd_da']
+            # da_rwd = (da_rwd - self.config['zmean_da']) / self.config['zstd_da']
             self.rewards['da_rwd'] = da_rwd.data.tolist()
             self.rewards['da_estimate'] = [[self.da_vocab.id2word[t] for t in batch] for batch in da_estimate_topk]
         else:
@@ -68,7 +68,8 @@ class Reward:
         # ordered reward
         if self.config['NRG']['ssn_rwd'] or self.mode == 'test':
             ssn_pred = self.ssn_model.predict(XTarget=[torch.tensor(sentence).clone().cuda() for sentence in context] + [torch.tensor(hyp).clone().cuda()], DATarget=[torch.tensor(da).clone().cuda() for da in da_context + [da_predicted]], step_size=step_size)
-            ssn_pred = ((1 - ssn_pred) - self.config['zmean_ssn']) / self.config['zstd_ssn']
+            # ssn_pred = ((1 - ssn_pred) - self.config['zmean_ssn']) / self.config['zstd_ssn']
+            ssn_pred = 1 - ssn_pred
             # ssn_pred: "probability of misordered", Tensor(batch_size), scalability=[0,1]
             self.rewards['ssn'] = ssn_pred.data.tolist()
         else:
@@ -83,7 +84,8 @@ class Reward:
                 nli_pred = nli_pred[:, 2]
                 nli_preds.append(nli_pred)
             nli_pred = torch.tensor(nli_preds).cuda().max(dim=0)[0]
-            nli_pred = ((1 - nli_pred) - self.config['zmean_nli']) / self.config['zstd_nli']
+            # nli_pred = ((1 - nli_pred) - self.config['zmean_nli']) / self.config['zstd_nli']
+            nli_pred = 1 - nli_pred
             # nli_pred: "probabilities of [entailment, neutral, contradiction]", List(batch_size, 3), scalability=[0,1]
             self.rewards['nli'] = nli_pred.data.tolist()
         else:

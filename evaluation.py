@@ -104,7 +104,7 @@ def evaluate(experiment):
             out_f.write('{}\t{}\t{}\n'.format('|'.join(contexts), hyp, ref))
         k += step_size
     print()
-    reward = np.mean([score for ele in rewards for score in ele])
+    reward = np.mean(rewards)
     nli_rwd = np.mean([score for ele in nli_rwds for score in ele])
     nli_std = np.std([score for ele in nli_rwds for score in ele])
     ssn_rwd = np.mean([score for ele in ssn_rwds for score in ele])

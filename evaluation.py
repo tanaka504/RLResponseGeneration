@@ -83,7 +83,7 @@ def evaluate(experiment):
         shuffle_ppl = model.perplexity(X=XU_tensor_shuffled, Y=torch.tensor(YU_seq_shuffled).cuda(), step_size=step_size)
         reward = reward_fn.reward(hyp=pred_seq, ref=None, context=[[s for s in X.data.tolist()] for X in XU_tensor], da_context=X_tensor, turn=turn_tensor, step_size=step_size)
         shuffle_ppls.append(shuffle_ppl)
-        rewards.append(reward)
+        rewards.append(reward.mean().item())
         nli_rwds.append(reward_fn.rewards['nli'])
         ssn_rwds.append(reward_fn.rewards['ssn'])
         da_rwds.append(reward_fn.rewards['da_rwd'])

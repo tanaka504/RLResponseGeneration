@@ -140,12 +140,12 @@ def train(args, fine_tuning=False):
                config=config).cuda()
     if fine_tuning:
         model.load_state_dict(torch.load(os.path.join(config['log_root'], config['pretrain_expr'], 'statevalidbest.model'.format()), map_location=lambda storage, loc: storage))
-    if args.checkpoint:
-        print('load checkpoint at epoch {}'.format(args.checkpoint))
-        log_f = open(os.path.join(config['log_dir'], 'train_log.txt'), 'a')
-        model.load_state_dict(torch.load(os.path.join(config['log_dir'], 'state{}.model'.format(args.checkpoint)), map_location=lambda storage, loc: storage))
-    else:
-        log_f = open(os.path.join(config['log_dir'], 'train_log.txt'), 'w')
+    # if args.checkpoint:
+    #     print('load checkpoint at epoch {}'.format(args.checkpoint))
+    #     log_f = open(os.path.join(config['log_dir'], 'train_log.txt'), 'a')
+    #     model.load_state_dict(torch.load(os.path.join(config['log_dir'], 'state{}.model'.format(args.checkpoint)), map_location=lambda storage, loc: storage))
+    # else:
+    #     log_f = open(os.path.join(config['log_dir'], 'train_log.txt'), 'w')
     model_opt = optim.Adam(list(filter(lambda x: x.requires_grad, model.parameters())), lr=lr)
     print('Success construct model...')
 
@@ -214,7 +214,7 @@ def train(args, fine_tuning=False):
         da_rwd = np.mean(da_rwds)
         print('nli: {}, ssn: {}, da: {}'.format(nli_rwd, ssn_rwd, da_rwd))
         valid_loss, valid_reward, valid_bleu = validation(XU_valid=XU_valid, YU_valid=YU_valid, XD_valid=X_valid, turn_valid=turn_valid, model=model, utt_vocab=utt_vocab, config=config)
-        log_f.write('{},{},{},{},{},{},{},{},{}\n'.format(e + 1, print_total_loss, np.mean(rewards), valid_loss, valid_bleu, valid_reward, nli_rwd, ssn_rwd, da_rwd))
+        # log_f.write('{},{},{},{},{},{},{},{},{}\n'.format(e + 1, print_total_loss, np.mean(rewards), valid_loss, valid_bleu, valid_reward, nli_rwd, ssn_rwd, da_rwd))
         def save_model(filename):
             torch.save(model.state_dict(), os.path.join(config['log_dir'], 'state{}.model'.format(filename)))
 
@@ -259,7 +259,7 @@ def train(args, fine_tuning=False):
             save_model(e+1)
 
     print()
-    log_f.close()
+    # log_f.close()
     print('Finish training | exec time: %.4f [sec]' % (time.time() - start))
 
 

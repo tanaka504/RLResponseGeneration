@@ -93,7 +93,7 @@ class RL(nn.Module):
                 prev_words = Y[:, j].unsqueeze(1)
                 logits, decoder_hidden, _ = self.utt_decoder(prev_words, decoder_hidden)
                 loss += self.criterion(logits, Y[:, j+1])
-        return loss.mean().item()
+        return loss.data.tolist()
 
     def _encoding(self, X_utt, step_size):
         # Encode Utterance
@@ -311,7 +311,7 @@ class seq2seq(nn.Module):
                 logits, decoder_hidden, decoder_output = self.decoder(prev_words, decoder_hidden)
                 loss += self.criterion(logits, Y[:, j])
                 prev_words = Y[:, j].unsqueeze(-1)
-        return loss.mean().item()
+        return loss.data.tolist()
 
     def _greedy_decode(self, decoder_hidden, step_size):
         PAD_token = self.utt_vocab.word2id['<PAD>']

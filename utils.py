@@ -176,6 +176,37 @@ class MPMI:
         else:
             return sum(sum(self.matrix[self.tag_idx[tag]][self.vocab.token2id[word]] for word in sentence if word in self.vocab.token2id and not self.matrix[self.tag_idx[tag]][self.vocab.token2id[word]] is None)/ len(sentence) for sentence in sentences) / len(sentences)
 
+class PMI:
+    def __init__(self, documents, vocab):
+        """
+        documents: List of sentence pairs. List((x, y))
+        """
+        self.docs = [(x.split(' '), y.split(' ')) for x, y in documents]
+        self.vocab = vocab
+        # self.vocab = corpora.Dictionary([x for pair in documents for x in pair])
+        self._count()
+
+    def _count(self):
+        bags = [(self.vocab.word2id[x_word], self.vocab.word2id[y_word]) for x, y in self.docs for x_word in x for y_word in y if x_word in self.vocab.word2id.keys() and y_word in self.vocab.word2id.keys()]
+        N = len(bags)
+        vocab_len = len(self.vocab.word2id)
+        counts = Counter(bags)
+        overall_counts = Counter([word for word_pair in bags for word in word_pair])
+        matrix = np.zeros((vocab_len, vocab_len))
+        for idx, (word_pair, freq) in enumerate(counts.items()):
+            print('\r create matrix {} %'.format(idx / len(counts.keys()) * 100), end='')
+            x_wid, y_wid = word_pair
+            Pxy = freq / vocab_len
+            Px = overall_counts[y_wid] / N
+            PMI = math.log(Pxy / Px, 2)
+            matrix[x_wid][y_wid] = PMI
+        self.matrix = matrix
+        print()
+
+    def get_score(self, X, Y):
+        return np.mean([max(self.matrix[self.vocab.word2id[x_word]][self.vocab.word2id[y_word]] for x_word in X.split(' ') if x_word in self.vocab.word2id.keys()) for y_word in Y.split(' ') if y_word in self.vocab.word2id.keys()])
+
+
 class BLEU_score:
     def __init__(self):
         pass
@@ -229,7 +260,7 @@ class Contradict:
             X_tensor = [torch.tensor(X_seq).cuda()]
             Y_tensor = torch.tensor(Y_seq).cuda()
             loss = model.perplexity(X_tensor, Y_tensor, step_size)
-            losses.append(loss)
+            losses.append(np.mean(loss))
             k += step_size
         print()
         return np.mean(losses)

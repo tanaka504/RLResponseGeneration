@@ -41,6 +41,7 @@ def evaluate(experiment):
     ssn_rwds = []
     da_rwds = []
     rewards = []
+    ppls = []
     shuffle_ppls = []
     out_f = open('./data/result/result_{}.tsv'.format(experiment), 'w')
     while k < len(indexes):
@@ -79,10 +80,11 @@ def evaluate(experiment):
         Y_tensor = [y[-1] for y in Y_seq]
         YU_tensor = [y[-1] for y in YU_seq]
         pred_seq = model.predict(X_utt=XU_tensor, step_size=step_size)
-        # perplexity = model.perplexity(X=XU_tensor, Y=torch.tensor(YU_tensor).cuda(), step_size=step_size)
+        perplexity = model.perplexity(X=XU_tensor, Y=torch.tensor(YU_tensor).cuda(), step_size=step_size)
         shuffle_ppl = model.perplexity(X=XU_tensor_shuffled, Y=torch.tensor(YU_seq_shuffled).cuda(), step_size=step_size)
         reward = reward_fn.reward(hyp=pred_seq, ref=None, context=[[s for s in X.data.tolist()] for X in XU_tensor], da_context=X_tensor, turn=turn_tensor, step_size=step_size)
-        shuffle_ppls.append(shuffle_ppl)
+        ppls.append(np.mean(perplexity))
+        shuffle_ppls.append(np.mean(shuffle_ppl))
         rewards.append(reward.mean().item())
         nli_rwds.append(reward_fn.rewards['nli'])
         ssn_rwds.append(reward_fn.rewards['ssn'])
@@ -100,6 +102,8 @@ def evaluate(experiment):
                 'da_rwd': reward_fn.rewards['da_rwd'][bidx],
                 'ref': ref,
                 'context': contexts,
+                'perplexity': perplexity[bidx],
+                'shuffle_ppl': shuffle_ppl[bidx],
             })
             out_f.write('{}\t{}\t{}\n'.format('|'.join(contexts), hyp, ref))
         k += step_size
@@ -112,7 +116,7 @@ def evaluate(experiment):
     da_rwd = np.mean([score for ele in da_rwds for score in ele])
     da_std = np.std([score for ele in da_rwds for score in ele])
     print('avg. of reward: ', reward)
-    print('contradict ppl: {}, shuffle ppl: {}'.format(c_ppl, np.mean(shuffle_ppls)))
+    print('contradict ppl: {}, shuffle ppl: {}'.format(c_ppl, np.mean(shuffle_ppls) - np.mean(ppls)))
     print('nli: {}, ssn: {}, da: {}'.format(nli_rwd, ssn_rwd, da_rwd))
     print('nli: {}, ssn: {}, da: {}'.format(nli_std, ssn_std, da_std))
     out_f.close()
@@ -151,7 +155,7 @@ def shuffle_context(X, Y):
     for bidx in range(len(X_new)):
         swap_idx = random.choice(indexes)
         Y_new.append(X_new[bidx][swap_idx])
-        X_new[bidx][swap_idx] = Y[bidx][-1]
+        # X_new[bidx][swap_idx] = Y[bidx][-1]
     return X_new, Y_new
 
 

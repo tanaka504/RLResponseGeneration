@@ -150,11 +150,15 @@ def save_cmx(y_true, y_pred, expr):
 
 def shuffle_context(X, Y):
     X_new = copy.deepcopy(X)
-    indexes = [i for i in range(len(X[0]))]
-    Y_new = []
+    indexes = [i for i in range(len(X[0])-1)]
+    Y_new = copy.deepcopy(Y)
+    Y_new = [y[-1] for y in Y_new]
     for bidx in range(len(X_new)):
         swap_idx = random.choice(indexes)
-        Y_new.append(X_new[bidx][swap_idx])
+        tmp = X_new[bidx][swap_idx]
+        X_new[bidx][swap_idx] = X_new[bidx][-1]
+        X_new[bidx][-1] = tmp
+        # Y_new.append(X_new[bidx][swap_idx])
         # X_new[bidx][swap_idx] = Y[bidx][-1]
     return X_new, Y_new
 

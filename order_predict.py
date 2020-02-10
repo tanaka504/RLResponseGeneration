@@ -304,5 +304,5 @@ def padding(batch, pad_idx):
 
 if __name__ == '__main__':
     args = parse()
-    train(args.expr)
+    # train(args.expr)
     evaluate(args.expr)

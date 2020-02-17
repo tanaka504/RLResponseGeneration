@@ -1,12 +1,8 @@
 import os, re, json, math
-import matplotlib.pyplot as plt
 import torch
 from nltk import tokenize
-from nltk.translate.bleu_score import corpus_bleu, SmoothingFunction
+from nltk.translate.bleu_score import sentence_bleu, corpus_bleu, SmoothingFunction
 import pickle
-import pandas as pd
-import seaborn as sns
-from sklearn.metrics import confusion_matrix
 from gensim import corpora
 import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -36,6 +32,7 @@ def parse():
     parser.add_argument('--expr', '-e', default='seq2seq', help='input experiment config')
     parser.add_argument('--gpu', '-g', type=int, default=0, help='input gpu num')
     parser.add_argument('--epoch', default='trainbest')
+    parser.add_argument('--checkpoint', '-c', type=int, default=0)
     args = parser.parse_args()
     if torch.cuda.is_available():
         torch.cuda.set_device(args.gpu)
@@ -45,7 +42,7 @@ def parse():
 def initialize_env(name):
     corpus_path = {
         'jaist': {'path': './data/corpus/jaist', 'pattern': r'^data([0-9]*?)\_{}\_([0-9]*?)\.jsonlines$', 'lang': 'ja'},
-        'swda': {'path': './data/corpus/json_data', 'pattern': r'^sw_{}_([0-9]*?)\.jsonlines$', 'lang': 'en'},
+        'swda': {'path': './data/corpus/swda', 'pattern': r'^sw\_([0-9]*?)\_([0-9]*?)\_{}\.jsonlines$', 'lang': 'en'},
         'opensubtitles': {'path': './data/corpus/OpenSubtitles', 'pattern': r'^OpenSubtitles\_{}\_([0-9]*?)\.jsonlines$', 'lang': 'en'},
         'dailydialog': {'path': './data/corpus/dailydialog', 'pattern': r'^DailyDialog\_{}\_([0-9]*?)\.jsonlines$', 'lang': 'en'}
     }
@@ -56,6 +53,9 @@ def initialize_env(name):
     config['lang'] = corpus_path[config['corpus']]['lang']
     if not os.path.exists(config['log_dir']):
         os.makedirs(config['log_dir'])
+    print('loading setting "{}"'.format(name))
+    print('log_root: {}'.format(config['log_root']))
+    print('corpus: {}'.format(config['corpus']))
     return config
 
 class da_Vocab:
@@ -176,14 +176,100 @@ class MPMI:
         else:
             return sum(sum(self.matrix[self.tag_idx[tag]][self.vocab.token2id[word]] for word in sentence if word in self.vocab.token2id and not self.matrix[self.tag_idx[tag]][self.vocab.token2id[word]] is None)/ len(sentence) for sentence in sentences) / len(sentences)
 
+class PMI:
+    def __init__(self, documents, vocab):
+        """
+        documents: List of sentence pairs. List((x, y))
+        """
+        self.docs = [(x.split(' '), y.split(' ')) for x, y in documents]
+        self.vocab = vocab
+        # self.vocab = corpora.Dictionary([x for pair in documents for x in pair])
+        self._count()
+
+    def _count(self):
+        bags = [(self.vocab.word2id[x_word], self.vocab.word2id[y_word]) for x, y in self.docs for x_word in x for y_word in y if x_word in self.vocab.word2id.keys() and y_word in self.vocab.word2id.keys()]
+        N = len(bags)
+        vocab_len = len(self.vocab.word2id)
+        counts = Counter(bags)
+        overall_counts = Counter([word for word_pair in bags for word in word_pair])
+        matrix = np.zeros((vocab_len, vocab_len))
+        for idx, (word_pair, freq) in enumerate(counts.items()):
+            print('\r create matrix {} %'.format(idx / len(counts.keys()) * 100), end='')
+            x_wid, y_wid = word_pair
+            Pxy = freq / vocab_len
+            Px = overall_counts[y_wid] / N
+            PMI = math.log(Pxy / Px, 2)
+            matrix[x_wid][y_wid] = PMI
+        self.matrix = matrix
+        print()
+
+    def get_score(self, X, Y):
+        return np.mean([max(self.matrix[self.vocab.word2id[x_word]][self.vocab.word2id[y_word]] for x_word in X.split(' ') if x_word in self.vocab.word2id.keys()) for y_word in Y.split(' ') if y_word in self.vocab.word2id.keys()])
+
+
+class BLEU_score:
+    def __init__(self):
+        pass
+
+    def get_bleu_n(self, refs, hyps, n):
+        BLEU_prec = np.mean([max([self._calc_bleu(ref, hyp, n) for ref in refs]) for hyp in hyps])
+        BLEU_recall = np.mean([max([self._calc_bleu(ref, hyp, n) for hyp in hyps]) for ref in refs])
+        return BLEU_prec, BLEU_recall
+
+    def _calc_bleu(self, ref, hyp, n):
+        try:
+            return sentence_bleu(references=[ref], hypothesis=hyp, smoothing_function=SmoothingFunction().method7, weights=[1/n for _ in range(1, n+1)])
+        except:
+            return 0.0
+
+class Distinct:
+    def __init__(self, sentences):
+        self.sentences = sentences
+
+    def score(self, n):
+        grams = [' '.join(gram) for sentence in self.sentences for gram in self._n_gram(sentence, n)]
+        return len(set(grams))/len(grams)
+
+    def _n_gram(self, seq, n):
+        return [seq[i:i+n] for i in range(len(seq)-n+1)]
+
+class Contradict:
+    def __init__(self, da_vocab, utt_vocab, config):
+        self.config = config
+        self.da_vocab = da_vocab
+        self.utt_vocab = utt_vocab
+        data = [line.strip().split('\t') for line in open('./data/corpus/dnli/dialogue_nli_test.tsv').readlines()]
+        self.X, self.Y = zip(*[(['<BOS>'] + en_preprocess(line[0]) + ['<EOS>'], ['<BOS>'] + en_preprocess(line[1]) + ['<EOS>']) for line in data if line[2] == 'negative'])
+
+    def evaluate(self, model):
+        X = [[self.utt_vocab.word2id[token] if token in self.utt_vocab.word2id.keys() else self.utt_vocab.word2id['<UNK>'] for token in sentence] for sentence in self.X]
+        Y = [[self.utt_vocab.word2id[token] if token in self.utt_vocab.word2id.keys() else self.utt_vocab.word2id['<UNK>'] for token in sentence] for sentence in self.Y]
+        k = 0
+        losses = []
+        batch_size = self.config['BATCH_SIZE']
+        while k < len(X):
+            step_size = min(batch_size, len(X) - k)
+            print('\r{}/{} dnli pairs evaluating'.format(k + step_size, len(X)), end='')
+            X_seq = X[k : k + step_size]
+            Y_seq = Y[k : k + step_size]
+            max_xseq_len = max(len(x) + 1 for x in X_seq)
+            max_yseq_len = max(len(y) + 1 for y in Y_seq)
+            for bidx in range(len(X_seq)):
+                X_seq[bidx] = X_seq[bidx] + [self.utt_vocab.word2id['<PAD>']] * (max_xseq_len - len(X_seq[bidx]))
+                Y_seq[bidx] = Y_seq[bidx] + [self.utt_vocab.word2id['<PAD>']] * (max_yseq_len - len(Y_seq[bidx]))
+            X_tensor = [torch.tensor(X_seq).cuda()]
+            Y_tensor = torch.tensor(Y_seq).cuda()
+            loss = model.perplexity(X_tensor, Y_tensor, step_size)
+            losses.append(np.mean(loss))
+            k += step_size
+        print()
+        return np.mean(losses)
+
 
 def calc_bleu(refs, hyps):
         refs = [[list(map(str, ref))] for ref in refs]
         hyps = [list(map(str, hyp)) for hyp in hyps]
-        # try:
         bleu = corpus_bleu(refs, hyps, smoothing_function=SmoothingFunction().method2)
-        # except:
-        #     bleu = 1e-10
         return bleu
 
 
@@ -208,11 +294,14 @@ def create_traindata(config, prefix='train'):
                 jsondata = json.loads(line)
                 for da, utt in zip(jsondata['DA'], jsondata['sentence']):
                     if config['lang'] == 'en':
-                        utt = [BOS_token] + en_preprocess(utt) + [EOS_token]
+                        _utt = [BOS_token] + en_preprocess(utt) + [EOS_token]
                     else:
-                        utt = [BOS_token] + utt.split(' ') + [EOS_token]
-                    da_seq.append(easy_damsl(da))
-                    utt_seq.append(utt)
+                        _utt = [BOS_token] + utt.split(' ') + [EOS_token]
+                    if config['corpus'] == 'swda':
+                        da_seq.append(easy_damsl(da))
+                    else:
+                        da_seq.append(da)
+                    utt_seq.append(_utt)
                     turn_seq.append(0)
                 turn_seq[-1] = 1
             da_seq = [da for da in da_seq]
@@ -227,7 +316,7 @@ def create_traindata(config, prefix='train'):
     assert len(da_posts) == len(da_cmnts), 'Unexpect length da_posts and da_cmnts'
     assert len(utt_posts) == len(utt_cmnts), 'Unexpect length utt_posts and utt_cmnts'
     assert all(len(ele) == config['window_size'] for ele in da_posts), {len(ele) for ele in da_posts}
-    return da_posts, da_cmnts, utt_posts, utt_cmnts
+    return da_posts, da_cmnts, utt_posts, utt_cmnts, turn
 
 def easy_damsl(tag):
     easy_tag = [k for k, v in damsl_align.items() if tag in v]
@@ -236,6 +325,7 @@ def easy_damsl(tag):
 def en_preprocess(utterance):
     if utterance == '': return ['<Silence>']
     return tokenize.word_tokenize(utterance.lower())
+
 
 def NLILoader(config, prefix='train'):
     if config['lang'] == 'en':
@@ -272,3 +362,8 @@ def MTLoader():
         X.append(x.split(' '))
         Y.append(y.split(' '))
     return X, Y
+
+def text_postprocess(text):
+    text = text.split('<EOS>')[0]
+    text = re.sub(r'<BOS>', '', text)
+    return text

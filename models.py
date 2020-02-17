@@ -19,7 +19,7 @@ class RL(nn.Module):
         self.reward_fn = reward_fn
         self.criterion = criterion
 
-    def forward(self, X_utt, Y_utt, step_size):
+    def forward(self, X_utt, Y_utt, X_da, turn, step_size):
         """
         :param X_utt: context utterance tensor Tensor(window_size, batch_size, seq_len, 1)
         :param Y_utt: reference utterance tensor Tensor(batch_size, seq_len, 1)
@@ -28,14 +28,14 @@ class RL(nn.Module):
         """
         CE_loss = 0
         base_loss = 0
-        utt_dec_hidden = self._encoding(X_utt=X_utt, step_size=step_size)
+        decoder_hidden = self._encoding(X_utt=X_utt, step_size=step_size)
 
         # Decoding
         pred_seq = []
         base_seq = []
         for j in range(len(Y_utt[0]) - 1):
             prev_words = Y_utt[:, j].unsqueeze(1)
-            logits, decoder_hidden, _ = self.utt_decoder(prev_words, utt_dec_hidden)
+            logits, decoder_hidden, _ = self.utt_decoder(prev_words, decoder_hidden)
             filtered_logits = self.top_k_top_p_filtering(_logits=logits, top_k=self.config['NRG']['top_k'],
                                                          top_p=self.config['NRG']['top_p'])
             probs = F.softmax(filtered_logits, dim=-1)
@@ -56,9 +56,11 @@ class RL(nn.Module):
             base_seq = [s for s in base_seq.transpose(0,1).data.tolist()]
             ref_seq = [s for s in Y_utt.data.tolist()]
             context = [[s for s in X.data.tolist()] for X in X_utt]
-            reward = self.reward_fn(hyp=pred_seq, ref=ref_seq, context=context, step_size=step_size)
-            b = self.reward_fn(hyp=base_seq, ref=ref_seq, context=context, step_size=step_size)
-            print('sample: {}, base: {}'.format(reward, b))
+            da_context = [xd.data.tolist() for xd in X_da]
+            turn = [t.data.tolist() for t in turn]
+            reward = self.reward_fn.reward(hyp=pred_seq, ref=ref_seq, context=context, da_context=da_context, turn=turn, step_size=step_size)
+            b = self.reward_fn.reward(hyp=base_seq, ref=ref_seq, context=context, da_context=da_context, turn=turn, step_size=step_size)
+
             # Optimized with REINFORCE
             RL_loss = CE_loss * (reward - b)
             loss = CE_loss * self.config['NRG']['lambda'] + RL_loss * (1 - self.config['NRG']['lambda'])
@@ -75,15 +77,23 @@ class RL(nn.Module):
     def predict(self, X_utt, step_size):
         with torch.no_grad():
             utt_decoder_hidden = self._encoding(X_utt=X_utt, step_size=step_size)
-            prev_words = torch.tensor([[self.utt_vocab.word2id['<BOS>']]]).cuda()
-            if self.config['beam_size']:
-                pred_seq, utt_decoder_hidden = self._beam_decode(decoder=self.utt_decoder,
-                                                                 decoder_hiddens=utt_decoder_hidden,
-                                                                 config=self.config)
-                pred_seq = pred_seq[0]
-            else:
-                pred_seq, utt_decoder_hidden = self._greedy_decode(prev_words, self.utt_decoder, utt_decoder_hidden)
-        return pred_seq
+            # if self.config['beam_size']:
+            #     pred_seq, utt_decoder_hidden = self._beam_decode(decoder=self.utt_decoder,
+            #                                                      decoder_hiddens=utt_decoder_hidden,
+            #                                                      config=self.config)
+            # else:
+            pred_seq, utt_decoder_hidden = self._greedy_decode(utt_decoder_hidden, step_size)
+        return torch.stack(pred_seq).transpose(0, 1).data.tolist()
+
+    def perplexity(self, X, Y, step_size):
+        with torch.no_grad():
+            loss = 0
+            decoder_hidden = self._encoding(X_utt=X, step_size=step_size)
+            for j in range(len(Y[0]) - 1):
+                prev_words = Y[:, j].unsqueeze(1)
+                logits, decoder_hidden, _ = self.utt_decoder(prev_words, decoder_hidden)
+                loss += self.criterion(logits, Y[:, j+1])
+        return loss.data.tolist()
 
     def _encoding(self, X_utt, step_size):
         # Encode Utterance
@@ -91,19 +101,20 @@ class RL(nn.Module):
         for X in X_utt:
             utt_encoder_hidden = self.utt_encoder.initHidden(step_size)
             utt_encoder_output, utt_encoder_hidden = self.utt_encoder(X, utt_encoder_hidden)  # (batch_size, 1, UTT_HIDDEN)
-            utt_encoder_output = utt_encoder_output.unsqueeze(1)
+            utt_encoder_output = torch.cat((utt_encoder_output[:, -1, :self.utt_encoder.hidden_size], utt_encoder_output[:, 0, self.utt_encoder.hidden_size:]), dim=-1).unsqueeze(1)
             # Update Context Encoder
             utt_context_output, utt_context_hidden = self.utt_context(utt_encoder_output, utt_context_hidden) # (batch_size, 1, UTT_CONTEXT)
 
         return utt_context_hidden
 
-    def _greedy_decode(self, prev_words, decoder, decoder_hidden):
+    def _greedy_decode(self, decoder_hidden, step_size):
         PAD_token = self.utt_vocab.word2id['<PAD>']
+        prev_words = torch.tensor([[self.utt_vocab.word2id['<BOS>']] for _ in range(step_size)]).cuda()
         pred_seq = []
         for _ in range(self.config['max_len']):
-            preds, decoder_hidden, _ = decoder(prev_words, decoder_hidden)
+            preds, decoder_hidden, _ = self.utt_decoder(prev_words, decoder_hidden)
             _, topi = preds.topk(1)
-            pred_seq.append(topi)
+            pred_seq.append(topi.squeeze(-1))
             prev_words = topi.clone()
             if all(ele == PAD_token for ele in topi):
                 break
@@ -151,7 +162,7 @@ class RL(nn.Module):
             indices_to_remove = torch.zeros_like(logits, dtype=torch.uint8).scatter_(
                 dim=-1, index=sorted_indices, src=sorted_indices_to_remove)
             logits[indices_to_remove] = filter_value
-        return logits
+        return logits,
 
     def _beam_decode(self, decoder, decoder_hiddens, config):
         BOS_token = self.utt_vocab.word2id['<BOS>']
@@ -212,6 +223,7 @@ class RL(nn.Module):
             decoded_batch.append(pred_seq)
         return decoded_batch, decoder_hidden
 
+
 class seq2seq(nn.Module):
     def __init__(self, utt_vocab, da_vocab, reward_fn, config):
         super(seq2seq, self).__init__()
@@ -226,29 +238,31 @@ class seq2seq(nn.Module):
         self.config = config
         self.reward_fn = reward_fn
 
-    def forward(self, X, Y, step_size):
+    def forward(self, X, Y, X_da, turn, step_size):
         CE_loss = 0
         base_loss = 0
         encoder_hidden = self.encoder.initHidden(step_size)
-        encoder_output, encoder_hidden = self.encoder(X, encoder_hidden)
+        _, encoder_hidden = self.encoder(X, encoder_hidden)
         encoder_hidden = torch.cat((encoder_hidden[0, :, :], encoder_hidden[1, :, :]), dim=-1).unsqueeze(0)
+        decoder_hidden = encoder_hidden
         # encoder_hidden: (1, batch_size, hidden_size)
         pred_seq = []
         base_seq = []
-        for j in range(Y.size(1)-1):
-            prev_words = Y[:, j].unsqueeze(-1)
-            logits, decoder_hidden, decoder_output = self.decoder(prev_words, encoder_hidden)
-            filtered_logits = self.top_k_top_p_filtering(_logits=logits, top_k=self.config['top_k'],
-                                               top_p=self.config['top_p'])
+        prev_words = torch.tensor([[self.utt_vocab.word2id['<BOS>']] for _ in range(step_size)]).cuda()
+        for j in range(Y.size(1)):
+            logits, decoder_hidden, decoder_output = self.decoder(prev_words, decoder_hidden)
+            filtered_logits = self.top_k_top_p_filtering(_logits=logits, top_k=self.config['NRG']['top_k'],
+                                               top_p=self.config['NRG']['top_p'])
             probs = F.softmax(filtered_logits, dim=-1)
             _, base_topi = logits.topk(1)
             next_token = torch.multinomial(probs, 1).squeeze(-1)
             pred_seq.append(next_token)
             base_seq.append(base_topi.squeeze(-1))
             if self.config['RL']:
-                CE_loss += self.criterion(probs, Y[:, j+1])
+                CE_loss += self.criterion(probs, Y[:, j])
             else:
-                base_loss += self.criterion(logits, Y[:, j+1])
+                base_loss += self.criterion(logits, Y[:, j])
+            prev_words = Y[:, j].unsqueeze(-1)
 
         if self.config['RL']:
             pred_seq = torch.stack(pred_seq)
@@ -257,17 +271,18 @@ class seq2seq(nn.Module):
             base_seq = [s for s in base_seq.transpose(0,1).data.tolist()]
             ref_seq = [s for s in Y.data.tolist()]
             context = [s for s in X.data.tolist()]
-            reward = self.reward_fn.reward(hyp=pred_seq, ref=ref_seq, context=context, step_size=step_size)
-            b = self.reward_fn.reward(hyp=base_seq, ref=ref_seq, context=context, step_size=step_size)
+            reward = self.reward_fn.reward(hyp=pred_seq, ref=ref_seq, context=context, da_context=X_da, turn=turn, step_size=step_size)
+            b = self.reward_fn.reward(hyp=base_seq, ref=ref_seq, context=context, da_context=X_da, turn=turn, step_size=step_size)
+            # print('sample: {}, base: {}'.format(reward, b))
             RL_loss = CE_loss * (reward - b)
-            loss = CE_loss * self.config['lambda'] + RL_loss * (1 - self.config['lambda'])
+            loss = CE_loss * self.config['NRG']['lambda'] + RL_loss * (1 - self.config['NRG']['lambda'])
             loss = loss.mean()
             reward = reward.mean().item()
         else:
             reward = 0
             loss = base_loss.mean()
             pred_seq = torch.stack(base_seq).transpose(0, 1).data.tolist()
-        torch.nn.utils.clip_grad_norm_(self.parameters(), self.config['clip'])
+        # torch.nn.utils.clip_grad_norm_(self.parameters(), self.config['clip'])
 
         if self.training:
             loss.backward()
@@ -276,34 +291,53 @@ class seq2seq(nn.Module):
     def predict(self, X, step_size):
         with torch.no_grad():
             encoder_hidden = self.encoder.initHidden(step_size)
-            encoder_output, encoder_hidden = self.encoder(X, encoder_hidden)
+            _, encoder_hidden = self.encoder(X, encoder_hidden)
             encoder_hidden = torch.cat((encoder_hidden[0, :, :], encoder_hidden[1, :, :]), dim=-1).unsqueeze(0)
-            pred_seq, _ = self._beam_decode(decoder=self.decoder, decoder_hiddens=encoder_hidden, config=self.config)
-        return pred_seq
+            # pred_seq, _ = self._beam_decode(decoder=self.decoder, decoder_hiddens=encoder_hidden, config=self.config)
+            # pred_seq, _ = self._sample_decode(decoder_hidden=encoder_hidden, step_size=step_size)
+            pred_seq, _ = self._greedy_decode(decoder_hidden=encoder_hidden, step_size=step_size)
+        return torch.stack(pred_seq).transpose(0, 1).data.tolist()
 
-    def _greedy_decode(self, prev_words, decoder, decoder_hidden):
-        EOS_token = self.utt_vocab.word2id['<EOS>']
+    def perplexity(self, X, Y, step_size):
+        X = X[0] if type(X) == list else X
+        with torch.no_grad():
+            loss = 0
+            encoder_hidden = self.encoder.initHidden(step_size)
+            _, encoder_hidden = self.encoder(X, encoder_hidden)
+            encoder_hidden = torch.cat((encoder_hidden[0, :, :], encoder_hidden[1, :, :]), dim=-1).unsqueeze(0)
+            decoder_hidden = encoder_hidden
+            prev_words = torch.tensor([[self.utt_vocab.word2id['<BOS>']] for _ in range(step_size)]).cuda()
+            for j in range(Y.size(1)):
+                logits, decoder_hidden, decoder_output = self.decoder(prev_words, decoder_hidden)
+                loss += self.criterion(logits, Y[:, j])
+                prev_words = Y[:, j].unsqueeze(-1)
+        return loss.data.tolist()
+
+    def _greedy_decode(self, decoder_hidden, step_size):
+        PAD_token = self.utt_vocab.word2id['<PAD>']
+        prev_words = torch.tensor([[self.utt_vocab.word2id['<BOS>']] for _ in range(step_size)]).cuda()
         pred_seq = []
         for _ in range(self.config['max_len']):
-            preds, decoder_hidden, _ = decoder(prev_words, decoder_hidden)
+            preds, decoder_hidden, _ = self.decoder(prev_words, decoder_hidden)
             _, topi = preds.topk(1)
-            pred_seq.append(topi.item())
-            prev_words = torch.tensor([[topi]]).cuda()
-            if topi == EOS_token:
+            pred_seq.append(topi.squeeze(-1))
+            prev_words = topi
+            if all(ele == PAD_token for ele in prev_words):
                 break
         return pred_seq, decoder_hidden
 
-    def _sample_decode(self, prev_words, decoder, decoder_hidden):
-        EOS_token = self.utt_vocab.word2id['<EOS>']
+    def _sample_decode(self, decoder_hidden, step_size):
+        PAD_token = self.utt_vocab.word2id['<PAD>']
+        prev_words = torch.tensor([[self.utt_vocab.word2id['<BOS>']] for _ in range(step_size)]).cuda()
         pred_seq = []
         for _ in range(self.config['max_len']):
-            logits, decoder_hidden, _ = decoder(prev_words, decoder_hidden)
-            filtered_logits = self.top_k_top_p_filtering(_logits=logits, top_k=self.config['top_k'], top_p=self.config['top_p'])
+            logits, decoder_hidden, _ = self.decoder(prev_words, decoder_hidden)
+            filtered_logits = self.top_k_top_p_filtering(_logits=logits, top_k=self.config['NRG']['top_k'], top_p=self.config['NRG']['top_p'])
             probs = F.softmax(filtered_logits, dim=-1)
             next_token = torch.multinomial(probs, 1)
-            pred_seq.append(next_token)
-            prev_words = torch.tensor(next_token).cuda()
-            if next_token == EOS_token:
+            pred_seq.append(next_token.squeeze(-1))
+            prev_words = next_token.clone()
+            if all(ele == PAD_token for ele in next_token):
                 break
         return pred_seq, decoder_hidden
 

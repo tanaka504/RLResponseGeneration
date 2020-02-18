@@ -162,7 +162,7 @@ class RL(nn.Module):
             indices_to_remove = torch.zeros_like(logits, dtype=torch.uint8).scatter_(
                 dim=-1, index=sorted_indices, src=sorted_indices_to_remove)
             logits[indices_to_remove] = filter_value
-        return logits,
+        return logits
 
     def _beam_decode(self, decoder, decoder_hiddens, config):
         BOS_token = self.utt_vocab.word2id['<BOS>']

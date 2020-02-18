@@ -92,7 +92,9 @@ class Reward:
             self.rewards['nli'] = [0] * step_size
             nli_pred = 0
 
-        reward = ssn_pred + nli_pred + da_rwd
+        reward = (ssn_pred * self.config['NRG']['weight_ssn']) \
+                 + (nli_pred * self.config['NRG']['weight_nli']) \
+                 + (da_rwd * self.config['NRG']['weight_da'])
         return reward
 
     def repadding(self, T):

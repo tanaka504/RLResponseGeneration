@@ -96,7 +96,7 @@ class Reward:
             reward = (ssn_pred * self.config['NRG']['weight_ssn']) \
                      + (nli_pred * self.config['NRG']['weight_nli']) \
                      + (da_rwd * self.config['NRG']['weight_da'])
-        else:
+        elif self.config['assortment'] == 'geomean':
             reward = (ssn_pred * nli_pred * da_rwd) ** (1/3)
         return reward
 

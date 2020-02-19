@@ -36,7 +36,7 @@ class RL(nn.Module):
         for j in range(len(Y_utt[0]) - 1):
             prev_words = Y_utt[:, j].unsqueeze(1)
             logits, decoder_hidden, _ = self.utt_decoder(prev_words, decoder_hidden)
-            if any(torch.isnan(logits)):
+            if any(torch.isnan(logits).data.tolist()):
                 print('detect nan')
                 input()
             filtered_logits = self.top_k_top_p_filtering(_logits=logits, top_k=self.config['NRG']['top_k'],

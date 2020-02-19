@@ -97,7 +97,7 @@ class Reward:
                      + (nli_pred * self.config['NRG']['weight_nli']) \
                      + (da_rwd * self.config['NRG']['weight_da'])
         elif self.config['assortment'] == 'geomean':
-            reward = (ssn_pred * nli_pred * da_rwd) ** (1/3)
+            reward = ((ssn_pred + 1e-5) * (nli_pred + 1e-5) * (da_rwd + 1e-5)) ** (1/3)
         return reward
 
     def repadding(self, T):

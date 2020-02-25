@@ -15,7 +15,7 @@ def evaluation(experiment):
     # utt_vocab = utt_Vocab(config, create_vocab=False)
     # pmi = PMI([(' '.join([' '.join(x) for x in x_train]), ' '.join(y_train[-1])) for x_train, y_train in zip(X_train, Y_train)], utt_vocab)
     hyps = Counter([' '.join(line) for line in rl_hyps])
-    print({sent: freq / len(rl_hyps) for sent, freq in hyps.most_common(10)})
+    # print({sent: freq / len(rl_hyps) for sent, freq in hyps.most_common(10)})
     # print('Q-PMI: ', np.mean([pmi.get_score(' '.join(context), ' '.join(hyp)) for context, hyp in zip(q_context, q_hyps)]))
     # print(Counter(da_pred))
     # rl_hyps = [line.strip().split('\t')[1].split(' ') for line in open('./data/result/result_{}.tsv'.format(experiment), 'r').readlines()]
@@ -125,6 +125,6 @@ def human_evaluation():
         print('Relevance: ', np.mean(relevance[method]))
 
 if __name__ == '__main__':
-    # args = parse()
-    # evaluation(args.expr)
-    s_ppl_overlap()
+    args = parse()
+    evaluation(args.expr)
+    # s_ppl_overlap()

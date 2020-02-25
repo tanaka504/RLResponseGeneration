@@ -109,16 +109,22 @@ def evaluate(experiment):
         k += step_size
     print()
     reward = np.mean(rewards)
-    nli_rwd = np.mean([score for ele in nli_rwds for score in ele])
-    nli_std = np.std([score for ele in nli_rwds for score in ele])
-    ssn_rwd = np.mean([score for ele in ssn_rwds for score in ele])
-    ssn_std = np.std([score for ele in ssn_rwds for score in ele])
-    da_rwd = np.mean([score for ele in da_rwds for score in ele])
-    da_std = np.std([score for ele in da_rwds for score in ele])
+    nli_scores = [score for ele in nli_rwds for score in ele]
+    ssn_scores = [score for ele in ssn_rwds for score in ele]
+    da_scores = [score for ele in da_rwds for score in ele]
+    nli_rwd = np.mean(nli_scores)
+    nli_std = np.std(nli_scores)
+    ssn_rwd = np.mean(ssn_scores)
+    ssn_std = np.std(ssn_scores)
+    da_rwd = np.mean(da_scores)
+    da_std = np.std(da_scores)
     print('avg. of reward: ', reward)
     print('contradict ppl: {}, shuffle ppl: {}'.format(c_ppl, np.mean(shuffle_ppls) - np.mean(ppls)))
     print('nli: {}, ssn: {}, da: {}'.format(nli_rwd, ssn_rwd, da_rwd))
     print('nli: {}, ssn: {}, da: {}'.format(nli_std, ssn_std, da_std))
+    print('nli: max: {}, min: {}'.format(np.max(nli_scores), np.min(nli_scores)))
+    print('ssn: max: {}, min: {}'.format(np.max(ssn_scores), np.min(ssn_scores)))
+    print('da: max: {}, min: {}'.format(np.max(da_scores), np.min(da_scores)))
     out_f.close()
     json.dump(results, open('./data/result/result_{}.json'.format(experiment), 'w'), ensure_ascii=False)
 

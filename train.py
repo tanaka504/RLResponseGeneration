@@ -99,6 +99,9 @@ class Reward:
                      + (nli_pred_normed * self.config['NRG']['weight_nli']) \
                      + (da_rwd_normed * self.config['NRG']['weight_da'])
         elif self.config['assortment'] == 'geomean':
+            nli_pred = (nli_pred - self.config['nli_min']) / self.config['nli_max']
+            ssn_pred = (ssn_pred - self.config['ssn_min']) / self.config['ssn_max']
+            da_rwd = (da_rwd - self.config['da_min']) / self.config['da_max']
             reward = (ssn_pred * nli_pred * da_rwd) ** (1/3)
         
         elif self.config['assortment'] == 'harmonic':

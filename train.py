@@ -106,9 +106,9 @@ class Reward:
             # ssn_pred = (ssn_pred) / self.config['ssn_max']
             # da_rwd = (da_rwd) / self.config['da_max']
             reward = (ssn_pred_normed * nli_pred_normed * da_rwd_normed) ** (1/3)
-        
         elif self.config['assortment'] == 'harmonic':
-            reward = (3 * (nli_pred_normed * ssn_pred_normed * da_rwd_normed)) / (nli_pred_normed * ssn_pred_normed + nli_pred_normed * da_rwd_normed  + ssn_pred_normed *  da_rwd_normed)
+            reward = (3 * (nli_pred_normed * ssn_pred_normed * da_rwd_normed)) / \
+                     (nli_pred_normed * ssn_pred_normed + nli_pred_normed * da_rwd_normed + ssn_pred_normed * da_rwd_normed)
 
         return reward
 

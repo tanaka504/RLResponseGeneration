@@ -24,7 +24,6 @@ class Reward:
         self.da_predictor = DApredictModel(utt_vocab=utt_vocab, da_vocab=da_vocab, config=config).cuda()
         self.da_predictor.load_state_dict(torch.load(os.path.join(config['log_root'], 'DApredict_da', 'da_pred_statevalidbest.model'), map_location=lambda storage, loc: storage))
 
-
     def reward(self, hyp, ref, context, da_context, turn, step_size):
         """
         hyp:     List(batch_size, seq_len)
@@ -39,6 +38,7 @@ class Reward:
         hyp = self.repadding(hyp)
         context_decoded = [[text_postprocess(' '.join([self.utt_vocab.id2word[token] for token in sentence])) for sentence in conv] for conv in context]
         hyp_decoded = [text_postprocess(' '.join([self.utt_vocab.id2word[token] for token in sentence])) for sentence in hyp]
+        # ref_decoded = [text_postprocess(' '.join([self.utt_vocab.id2word[token] for token in sentence])) for sentence in ref]
         X_da = [torch.tensor(xda).cuda() for xda in da_context]
 
         # DA reward
@@ -58,41 +58,61 @@ class Reward:
                 else:
                     da_rwd.append(0.0)
             da_rwd = torch.tensor(da_rwd).cuda()
-            da_rwd = (da_rwd - self.config['zmean_da']) / self.config['zstd_da']
-            self.rewards['da_rwd'] = da_rwd.data.tolist()
+            # da_rwd_normed = (da_rwd - self.config['zmean_da']) / self.config['zstd_da']
+            da_rwd_normed = da_rwd / self.config['da_max']
+            self.rewards['da_rwd'] = da_rwd_normed.data.tolist()
             self.rewards['da_estimate'] = [[self.da_vocab.id2word[t] for t in batch] for batch in da_estimate_topk]
         else:
             self.rewards['da_rwd'] = [0] * step_size
-            da_rwd = 0
+            da_rwd_normed = 0
 
         # ordered reward
         if self.config['NRG']['ssn_rwd'] or self.mode == 'test':
             ssn_pred = self.ssn_model.predict(XTarget=[torch.tensor(sentence).clone().cuda() for sentence in context] + [torch.tensor(hyp).clone().cuda()], DATarget=[torch.tensor(da).clone().cuda() for da in da_context + [da_predicted]], step_size=step_size)
-            ssn_pred = ((1 - ssn_pred) - self.config['zmean_ssn']) / self.config['zstd_ssn']
+            ssn_pred = 1 - ssn_pred
+            # ssn_pred_normed = (ssn_pred - self.config['zmean_ssn']) / self.config['zstd_ssn']
+            ssn_pred_normed = ssn_pred / self.config['ssn_max']
             # ssn_pred = 1 - ssn_pred
             # ssn_pred: "probability of misordered", Tensor(batch_size), scalability=[0,1]
-            self.rewards['ssn'] = ssn_pred.data.tolist()
+            self.rewards['ssn'] = ssn_pred_normed.data.tolist()
         else:
             self.rewards['ssn'] = [0] * step_size
-            ssn_pred = 0
+            ssn_pred_normed = 0
 
         # contradiction reward
         if self.config['NRG']['nli_rwd'] or self.mode == 'test':
             nli_preds = []
             for sentence in context_decoded:
                 nli_pred = self.nli_model.predict(x1=sentence, x2=hyp_decoded)
-                nli_pred = nli_pred[:, 2]
+                # nli_pred = self.nli_model.predict(x1=sentence, x2=ref_decoded)
+                nli_pred = nli_pred[:, 1]
                 nli_preds.append(nli_pred)
+                # [print(a, b) for a, b, c in zip(sentence, hyp_decoded, nli_pred) if c < 0.5]
+                # input()
             nli_pred = torch.tensor(nli_preds).cuda().max(dim=0)[0]
-            nli_pred = ((1 - nli_pred) - self.config['zmean_nli']) / self.config['zstd_nli']
+            nli_pred = 1 - nli_pred
+            # nli_pred_normed = (nli_pred - self.config['zmean_nli']) / self.config['zstd_nli']
+            nli_pred_normed = nli_pred / self.config['nli_max']
             # nli_pred = 1 - nli_pred
             # nli_pred: "probabilities of [entailment, neutral, contradiction]", List(batch_size, 3), scalability=[0,1]
-            self.rewards['nli'] = nli_pred.data.tolist()
+            self.rewards['nli'] = nli_pred_normed.data.tolist()
         else:
             self.rewards['nli'] = [0] * step_size
-            nli_pred = 0
+            nli_pred_normed = 0
 
-        reward = ssn_pred + nli_pred + da_rwd
+        if self.config['assortment'] == 'summation':
+            reward = (ssn_pred_normed * self.config['NRG']['weight_ssn']) \
+                     + (nli_pred_normed * self.config['NRG']['weight_nli']) \
+                     + (da_rwd_normed * self.config['NRG']['weight_da'])
+        elif self.config['assortment'] == 'geomean':
+            # nli_pred = (nli_pred) / self.config['nli_max']
+            # ssn_pred = (ssn_pred) / self.config['ssn_max']
+            # da_rwd = (da_rwd) / self.config['da_max']
+            reward = (ssn_pred_normed * nli_pred_normed * da_rwd_normed) ** (1/3)
+        elif self.config['assortment'] == 'harmonic':
+            reward = (3 * (nli_pred_normed * ssn_pred_normed * da_rwd_normed)) / \
+                     (nli_pred_normed * ssn_pred_normed + nli_pred_normed * da_rwd_normed + ssn_pred_normed * da_rwd_normed)
+
         return reward
 
     def repadding(self, T):

@@ -24,7 +24,6 @@ class Reward:
         self.da_predictor = DApredictModel(utt_vocab=utt_vocab, da_vocab=da_vocab, config=config).cuda()
         self.da_predictor.load_state_dict(torch.load(os.path.join(config['log_root'], 'DApredict_da', 'da_pred_statevalidbest.model'), map_location=lambda storage, loc: storage))
 
-
     def reward(self, hyp, ref, context, da_context, turn, step_size):
         """
         hyp:     List(batch_size, seq_len)

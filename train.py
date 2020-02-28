@@ -39,6 +39,7 @@ class Reward:
         hyp = self.repadding(hyp)
         context_decoded = [[text_postprocess(' '.join([self.utt_vocab.id2word[token] for token in sentence])) for sentence in conv] for conv in context]
         hyp_decoded = [text_postprocess(' '.join([self.utt_vocab.id2word[token] for token in sentence])) for sentence in hyp]
+        # ref_decoded = [text_postprocess(' '.join([self.utt_vocab.id2word[token] for token in sentence])) for sentence in ref]
         X_da = [torch.tensor(xda).cuda() for xda in da_context]
 
         # DA reward
@@ -84,8 +85,11 @@ class Reward:
             nli_preds = []
             for sentence in context_decoded:
                 nli_pred = self.nli_model.predict(x1=sentence, x2=hyp_decoded)
-                nli_pred = nli_pred[:, 2]
+                # nli_pred = self.nli_model.predict(x1=sentence, x2=ref_decoded)
+                nli_pred = nli_pred[:, 1]
                 nli_preds.append(nli_pred)
+                # [print(a, b) for a, b, c in zip(sentence, hyp_decoded, nli_pred) if c < 0.5]
+                # input()
             nli_pred = torch.tensor(nli_preds).cuda().max(dim=0)[0]
             nli_pred = 1 - nli_pred
             # nli_pred_normed = (nli_pred - self.config['zmean_nli']) / self.config['zstd_nli']

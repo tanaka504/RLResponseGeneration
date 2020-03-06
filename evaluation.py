@@ -14,7 +14,7 @@ random.seed(42)
 def evaluate(experiment):
     print('load vocab')
     config = initialize_env(experiment)
-    X_test, Y_test, XU_test, YU_test, turn = create_traindata(config=config, prefix='train')
+    X_test, Y_test, XU_test, YU_test, turn = create_traindata(config=config, prefix='test')
     da_vocab = da_Vocab(config=config, create_vocab=False)
     utt_vocab = utt_Vocab(config=config, create_vocab=False)
     X_test, Y_test = da_vocab.tokenize(X_test), da_vocab.tokenize(Y_test)

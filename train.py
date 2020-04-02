@@ -23,8 +23,10 @@ class Reward:
         self.da_estimator.load_state_dict(torch.load(os.path.join(config['log_root'], 'DAestimate', 'da_pred_statevalidbest.model'), map_location=lambda storage, loc: storage))
         self.da_predictor = DApredictModel(utt_vocab=utt_vocab, da_vocab=da_vocab, config=config).cuda()
         self.da_predictor.load_state_dict(torch.load(os.path.join(config['log_root'], 'DApredict_da', 'da_pred_statevalidbest.model'), map_location=lambda storage, loc: storage))
-
+    
+    # REVIEW: hyp -> hyp_encoded
     def reward(self, hyp, ref, context, da_context, turn, step_size):
+        # REVIEW: descript not only types but also contents
         """
         hyp:     List(batch_size, seq_len)
         ref:     List(batch_size, seq_len)
@@ -205,6 +207,7 @@ def train(args, fine_tuning=False):
             for i in range(0, max_conv_len):
                 max_xseq_len = max(len(XU[i]) + 1 for XU in XU_seq)
                 max_yseq_len = max(len(YU[i]) + 1 for YU in YU_seq)
+                # REVIEW: show example ([[a, b, c], [d, e]] -> [[a, b, c], [d, e, <PAD>]])
                 # utterance padding
                 for ci in range(len(XU_seq)):
                     XU_seq[ci][i] = XU_seq[ci][i] + [utt_vocab.word2id['<PAD>']] * (max_xseq_len - len(XU_seq[ci][i]))
@@ -249,6 +252,7 @@ def train(args, fine_tuning=False):
             save_model('validbest')
             _monitor_score = monitor_score
         else:
+            # REVIEW: put comparison target to left
             if _monitor_score < monitor_score:
                 save_model('validbest')
                 _monitor_score = monitor_score
